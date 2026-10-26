@@ -1619,6 +1619,10 @@ export default function App() {
       setError(SAFETY_SESSION_MISSING_NOTICE);
       return;
     }
+    if (stateUnknownRef.current) {
+      setError(SAFETY_STATE_UNKNOWN_NOTICE);
+      return;
+    }
     if (discomfortBlockedRef.current) {
       setError('本次训练已因不适停止，不能通过切换输入源恢复本组。');
       return;
@@ -1653,8 +1657,12 @@ export default function App() {
       setError(SAFETY_SESSION_MISSING_NOTICE);
       return;
     }
+    if (stateUnknownRef.current) {
+      setError(SAFETY_STATE_UNKNOWN_NOTICE);
+      return;
+    }
     if (!file) return;
-    reset();
+    if (!reset()) return;
     if (videoUrl.current) URL.revokeObjectURL(videoUrl.current);
     videoUrl.current = URL.createObjectURL(file);
     setVideoName(file.name);
@@ -2386,7 +2394,11 @@ export default function App() {
           <div role="alert" className="alert safety-stop">
             <strong>摄像头连接已中断</strong>{' '}
             本次训练已停止计时；重新连接会重置本组计数，不会把无画面时间算作训练。
-            <button className="secondary" onClick={() => void reconnectCamera()}>
+            <button
+              className="secondary"
+              disabled={stateUnknown}
+              onClick={() => void reconnectCamera()}
+            >
               重新连接摄像头并重置本组
             </button>
           </div>
@@ -2487,7 +2499,8 @@ export default function App() {
                   discomfortBlocked ||
                   sessionChecking ||
                   storageFault ||
-                  sessionUninitialized
+                  sessionUninitialized ||
+                  stateUnknown
                 }
                 className={sourceMode === 'simulation' ? 'selected' : ''}
                 onClick={() => chooseSource('simulation')}
@@ -2501,7 +2514,8 @@ export default function App() {
                   discomfortBlocked ||
                   sessionChecking ||
                   storageFault ||
-                  sessionUninitialized
+                  sessionUninitialized ||
+                  stateUnknown
                 }
                 className={sourceMode === 'camera' ? 'selected' : ''}
                 onClick={() => chooseSource('camera')}
@@ -2515,7 +2529,8 @@ export default function App() {
                   discomfortBlocked ||
                   sessionChecking ||
                   storageFault ||
-                  sessionUninitialized
+                  sessionUninitialized ||
+                  stateUnknown
                 }
                 className={sourceMode === 'video' ? 'selected' : ''}
                 onClick={() => fileInput.current?.click()}
@@ -2528,6 +2543,7 @@ export default function App() {
               type="file"
               accept="video/*"
               hidden
+              disabled={stateUnknown}
               onChange={(e) => onVideoFile(e.target.files?.[0])}
             />
           </div>
@@ -2602,10 +2618,15 @@ export default function App() {
                     discomfortBlocked ||
                     sessionChecking ||
                     storageFault ||
-                    sessionUninitialized
+                    sessionUninitialized ||
+                    stateUnknown
                   }
                   checked={showExperimental}
                   onChange={(e) => {
+                    if (stateUnknownRef.current) {
+                      setError(SAFETY_STATE_UNKNOWN_NOTICE);
+                      return;
+                    }
                     setShowExperimental(e.target.checked);
                     if (!e.target.checked && exercise !== 'squat' && exercise !== 'jumping_jack')
                       setExercise('squat');
@@ -2635,10 +2656,15 @@ export default function App() {
                   discomfortBlocked ||
                   sessionChecking ||
                   storageFault ||
-                  sessionUninitialized
+                  sessionUninitialized ||
+                  stateUnknown
                 }
                 value={exercise}
                 onChange={(e) => {
+                  if (stateUnknownRef.current) {
+                    setError(SAFETY_STATE_UNKNOWN_NOTICE);
+                    return;
+                  }
                   if (isExercise(e.target.value)) setExercise(e.target.value);
                 }}
               >
@@ -2737,7 +2763,8 @@ export default function App() {
                     discomfortBlocked ||
                     sessionChecking ||
                     storageFault ||
-                    sessionUninitialized
+                    sessionUninitialized ||
+                    stateUnknown
                   }
                   onClick={reset}
                 >
@@ -2752,7 +2779,8 @@ export default function App() {
                     discomfortBlocked ||
                     sessionChecking ||
                     storageFault ||
-                    sessionUninitialized
+                    sessionUninitialized ||
+                    stateUnknown
                   }
                   onClick={() => fileInput.current?.click()}
                 >
@@ -2997,10 +3025,17 @@ export default function App() {
                       discomfortBlocked ||
                       sessionChecking ||
                       storageFault ||
-                      sessionUninitialized
+                      sessionUninitialized ||
+                      stateUnknown
                     }
                     value={threshold}
-                    onChange={(e) => setThreshold(Number(e.target.value))}
+                    onChange={(e) => {
+                      if (stateUnknownRef.current) {
+                        setError(SAFETY_STATE_UNKNOWN_NOTICE);
+                        return;
+                      }
+                      setThreshold(Number(e.target.value));
+                    }}
                   />
                   {threshold}°
                 </label>
