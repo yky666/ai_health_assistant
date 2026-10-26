@@ -35,6 +35,8 @@ export type LocalSummary = {
 };
 
 const HISTORY_KEY = 'localfit-browser-history';
+/** Keep browser history aligned with the backend's existing 50-row limit. */
+export const HISTORY_LIMIT = 50;
 let lastReport: Report | null = null;
 const reports = new Map<string, Report>();
 
@@ -323,7 +325,7 @@ export function loadHistory(): Report[] {
     )
   )
     throw new Error('本地历史记录格式无效，未覆盖已有历史。');
-  return items.slice(0, 20);
+  return items.slice(0, HISTORY_LIMIT);
 }
 
 export function clearHistory() {
@@ -337,5 +339,5 @@ export function clearHistory() {
 function saveHistory(report: Report) {
   const items = loadHistory().filter((item) => item.session_id !== report.session_id);
   items.unshift(report);
-  sessionStorage.setItem(HISTORY_KEY, JSON.stringify(items.slice(0, 20)));
+  sessionStorage.setItem(HISTORY_KEY, JSON.stringify(items.slice(0, HISTORY_LIMIT)));
 }

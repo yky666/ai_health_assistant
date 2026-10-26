@@ -97,6 +97,7 @@ type RemoteDecision = {
   decided_at: string | null;
   recoverable: boolean;
 };
+type PoseStatus = 'initializing' | 'worker' | 'main-thread' | 'failed' | 'retrying';
 
 function readStored<T>(key: string): T | null {
   try {
@@ -148,7 +149,13 @@ export default function App() {
   const [showExperimental, setShowExperimental] = useState(false);
   const [sourceMode, setSourceMode] = useState<SourceMode>('simulation');
   const [modelReady, setModelReady] = useState(false);
+  const [poseStatus, setPoseStatus] = useState<PoseStatus>('initializing');
+  const [poseRetryKey, setPoseRetryKey] = useState(0);
   const [running, setRunning] = useState(false);
+  const [cameraInterrupted, setCameraInterrupted] = useState(false);
+  const mountedRef = useRef(true);
+  const sourceModeRef = useRef<SourceMode>('simulation');
+  const cameraLifecycle = useRef(0);
   const [metrics, setMetrics] = useState<Metrics>(emptyMetrics);
   const [elapsed, setElapsed] = useState(0);
   const [weight, setWeight] = useState(65);
@@ -195,6 +202,8 @@ export default function App() {
   const avatar = useRef<HTMLCanvasElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const stream = useRef<MediaStream | null>(null);
+  const cameraTrackCleanup = useRef<(() => void) | null>(null);
+  const cameraRequest = useRef<Promise<MediaStream> | null>(null);
   const videoUrl = useRef('');
   const worker = useRef<Worker | null>(null);
   const poseMain = useRef<{
@@ -207,6 +216,7 @@ export default function App() {
     };
     close?: () => void;
   } | null>(null);
+  const poseRuntimeFailedRef = useRef(false);
   const ingestPose = useRef<
     (data: {
       points: Point[];
@@ -396,17 +406,49 @@ export default function App() {
     }
   };
 
+  function handlePoseRuntimeFailure(message: string) {
+    if (poseRuntimeFailedRef.current) return;
+    poseRuntimeFailedRef.current = true;
+    live.current.running = false;
+    live.current.frameBusy = false;
+    live.current.ready = false;
+    generation.current += 1;
+    setRunning(false);
+    setModelReady(false);
+    setPoseStatus('failed');
+    worker.current?.terminate();
+    worker.current = null;
+    poseMain.current?.close?.();
+    poseMain.current = null;
+    setError('姿态模型运行失败：' + message + ' 本组计时已停止；请点击“重试模型加载”后重新开始。');
+  }
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      cameraLifecycle.current += 1;
+      releaseCamera();
+    };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     let fallbackStarted = false;
     let poseWorker: Worker | null = null;
     const assetBase = new URL(import.meta.env.BASE_URL, location.href).href.replace(/\/$/, '');
     const origin = assetBase || location.origin;
+    poseRuntimeFailedRef.current = false;
+    generation.current += 1;
+    setModelReady(false);
+    live.current.ready = false;
+    setPoseStatus(poseRetryKey > 0 ? 'retrying' : 'initializing');
 
-    const markReady = () => {
-      if (cancelled) return;
+    const markReady = (status: 'worker' | 'main-thread') => {
+      if (cancelled || poseRuntimeFailedRef.current) return;
       live.current.ready = true;
       setModelReady(true);
+      setPoseStatus(status);
       setError((prev) => (prev.startsWith('姿态模型') ? '' : prev));
     };
     const startMainThread = async () => {
@@ -415,17 +457,18 @@ export default function App() {
         const model = await createPoseLandmarker(origin, () => {
           if (!cancelled) setError('');
         });
-        if (cancelled) {
+        if (cancelled || poseRuntimeFailedRef.current) {
           model.close();
           return;
         }
         poseMain.current = model;
-        markReady();
+        markReady('main-thread');
       } catch (error) {
-        if (cancelled) return;
+        if (cancelled || poseRuntimeFailedRef.current) return;
         live.current.frameBusy = false;
         live.current.ready = false;
         setModelReady(false);
+        setPoseStatus('failed');
         setError('姿态模型未就绪：' + String(error));
       }
     };
@@ -438,6 +481,7 @@ export default function App() {
       if (fallbackStarted || cancelled || live.current.ready) return;
       fallbackStarted = true;
       abandonWorker();
+      setPoseStatus('retrying');
       setError('姿态模型改在页面内加载…');
       void startMainThread();
     };
@@ -448,20 +492,29 @@ export default function App() {
       poseWorker = new Worker(new URL('./pose.worker.ts', import.meta.url));
       worker.current = poseWorker;
       poseWorker.onmessage = (event: MessageEvent) => {
-        if (cancelled) return;
+        if (cancelled || poseRuntimeFailedRef.current) return;
         if (event.data.type === 'progress') setError('');
-        if (event.data.type === 'ready') markReady();
+        if (event.data.type === 'ready') markReady('worker');
         if (event.data.type === 'error') {
           live.current.frameBusy = false;
           if (!live.current.ready) {
             startMainThreadOnce();
             return;
           }
-          setError('姿态识别中断：' + event.data.message);
+          handlePoseRuntimeFailure('Worker 运行中断 ' + String(event.data.message || ''));
+          return;
         }
         if (event.data.type === 'pose') ingestPose.current(event.data);
       };
       poseWorker.onerror = () => {
+        if (cancelled || poseRuntimeFailedRef.current) return;
+        if (live.current.ready) {
+          handlePoseRuntimeFailure('Worker 运行错误');
+          return;
+        }
+        if (fallbackStarted) return;
+        live.current.ready = false;
+        setModelReady(false);
         startMainThreadOnce();
       };
       poseWorker.postMessage({ type: 'init', origin, strictOffline });
@@ -476,9 +529,184 @@ export default function App() {
       poseMain.current?.close?.();
       poseMain.current = null;
     };
-  }, []);
+  }, [poseRetryKey]);
+
+  function retryPose() {
+    if (poseStatus === 'retrying') return;
+    setPoseStatus('retrying');
+    setModelReady(false);
+    live.current.ready = false;
+    setError('');
+    setPoseRetryKey((key) => key + 1);
+  }
+
+  function acquireCameraStream(): Promise<MediaStream> {
+    if (cameraRequest.current) return cameraRequest.current;
+    const request = navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: 1280, height: 720 },
+      audio: false,
+    });
+    cameraRequest.current = request;
+    void request.then(
+      () => {
+        if (cameraRequest.current === request) cameraRequest.current = null;
+      },
+      () => {
+        if (cameraRequest.current === request) cameraRequest.current = null;
+      },
+    );
+    return request;
+  }
+
+  function releaseCameraIfCurrent(media: MediaStream) {
+    if (stream.current === media) releaseCamera();
+  }
+
+  function cameraOperationActive(token: number): boolean {
+    return (
+      mountedRef.current &&
+      sourceModeRef.current === 'camera' &&
+      !discomfortBlockedRef.current &&
+      cameraLifecycle.current === token
+    );
+  }
+
+  function stopCameraStream(media: MediaStream) {
+    for (const track of media.getTracks()) {
+      try {
+        track.stop();
+      } catch {
+        // A track may already be stopped by the browser.
+      }
+    }
+  }
+
+  function discardStaleCameraStream(media: MediaStream, token: number) {
+    // A stale request must never tear down a stream already installed by a
+    // newer operation. If it is that same stream, leave it to its owner unless
+    // this token is still current and the operation became invalid due to a
+    // safety/source/mount transition.
+    if (stream.current === media) {
+      if (cameraLifecycle.current === token) releaseCameraIfCurrent(media);
+      return;
+    }
+    if (
+      !mountedRef.current ||
+      sourceModeRef.current !== 'camera' ||
+      discomfortBlockedRef.current
+    ) {
+      stopCameraStream(media);
+      return;
+    }
+    // If a newer stream has been installed, this old stream is no longer the
+    // active camera and can be stopped. If no stream exists yet, a newer camera
+    // operation may still be consuming the same request; leave it to that owner.
+    if (stream.current && stream.current !== media) stopCameraStream(media);
+  }
+
+  function detachCameraTrackListeners() {
+    cameraTrackCleanup.current?.();
+    cameraTrackCleanup.current = null;
+  }
+
+  function attachCameraTrackListeners(media: MediaStream) {
+    detachCameraTrackListeners();
+    if (typeof media.getVideoTracks !== 'function') return;
+    const tracks = media.getVideoTracks();
+    const onEnded = () => {
+      // A listener removed before track.stop() must never turn a normal
+      // source switch/reset/unmount into a camera-interruption error.
+      if (cameraTrackCleanup.current === null) return;
+      handleCameraInterrupted();
+    };
+    for (const track of tracks) {
+      if (typeof track.addEventListener === 'function') track.addEventListener('ended', onEnded);
+    }
+    cameraTrackCleanup.current = () => {
+      for (const track of tracks) {
+        if (typeof track.removeEventListener === 'function')
+          track.removeEventListener('ended', onEnded);
+      }
+    };
+  }
+
+  function handleCameraInterrupted() {
+    if (cameraTrackCleanup.current === null || discomfortBlockedRef.current) return;
+    live.current.running = false;
+    live.current.frameBusy = false;
+    generation.current++;
+    setRunning(false);
+    detachCameraTrackListeners();
+    releaseCamera();
+    setCameraInterrupted(true);
+    setError('摄像头连接已中断。请重新连接摄像头并重置本组后再开始；本次不会把无画面时间计入训练。');
+  }
+
+  async function reconnectCamera() {
+    if (sourceModeRef.current !== 'camera') {
+      chooseSource('camera');
+      return;
+    }
+    if (!mountedRef.current) return;
+    const requestToken = ++cameraLifecycle.current;
+    let media: MediaStream | null = null;
+    setError('');
+    try {
+      media = await acquireCameraStream();
+      if (!cameraOperationActive(requestToken)) {
+        discardStaleCameraStream(media, requestToken);
+        return;
+      }
+      if (stream.current && stream.current !== media) releaseCamera();
+      stream.current = media;
+      attachCameraTrackListeners(media);
+      if (video.current) {
+        video.current.srcObject = media;
+        try {
+          await video.current.play();
+        } catch {
+          if (cameraOperationActive(requestToken)) {
+            releaseCameraIfCurrent(media);
+            setCameraInterrupted(true);
+            setError('无法播放摄像头画面；本次流已清理，请重新连接摄像头。');
+          } else {
+            discardStaleCameraStream(media, requestToken);
+          }
+          return;
+        }
+        if (!cameraOperationActive(requestToken)) {
+          discardStaleCameraStream(media, requestToken);
+          return;
+        }
+      }
+      // Only clear the interrupted state after the explicit reset succeeds.
+      // reset() may be refused by a safety/storage/session gate; preserve that
+      // gate's exact error instead of overwriting it with a false success.
+      if (!reset()) {
+        releaseCameraIfCurrent(media);
+        if (cameraOperationActive(requestToken)) setCameraInterrupted(true);
+        return;
+      }
+      if (!cameraOperationActive(requestToken)) {
+        discardStaleCameraStream(media, requestToken);
+        return;
+      }
+      setCameraInterrupted(false);
+      setError('摄像头已重新连接；本组计数已重置，请重新开始。');
+    } catch (e) {
+      if (media) {
+        if (stream.current === media) releaseCameraIfCurrent(media);
+        else discardStaleCameraStream(media, requestToken);
+      }
+      if (cameraOperationActive(requestToken)) {
+        setCameraInterrupted(true);
+        setError('无法重新连接摄像头：' + String(e));
+      }
+    }
+  }
 
   function releaseCamera() {
+    detachCameraTrackListeners();
     const media = stream.current;
     stream.current = null;
     if (media) {
@@ -1059,6 +1287,7 @@ export default function App() {
   }
 
   useEffect(() => {
+    sourceModeRef.current = sourceMode;
     live.current.source = sourceMode;
     if (sourceMode === 'simulation') {
       releaseCamera();
@@ -1068,30 +1297,49 @@ export default function App() {
     worldPoints.current = [];
     if (sourceMode === 'camera') {
       let cancelled = false;
-      navigator.mediaDevices
-        .getUserMedia({ video: { facingMode: 'user', width: 1280, height: 720 }, audio: false })
+      const requestToken = ++cameraLifecycle.current;
+      let ownedStream: MediaStream | null = null;
+      const requested = acquireCameraStream();
+      requested
         .then((s) => {
-          if (cancelled || discomfortBlockedRef.current) {
-            s.getTracks().forEach((t) => t.stop());
+          if (cancelled || !cameraOperationActive(requestToken)) {
+            discardStaleCameraStream(s, requestToken);
             return;
           }
+          // Do not replace an existing stream without stopping it first.
+          if (stream.current && stream.current !== s) releaseCamera();
           stream.current = s;
+          ownedStream = s;
+          attachCameraTrackListeners(s);
+          setCameraInterrupted(false);
           if (video.current) {
             video.current.srcObject = s;
             video.current
               .play()
               .then(() => {
-                if (cancelled || discomfortBlockedRef.current) releaseCamera();
+                if (!cameraOperationActive(requestToken)) releaseCameraIfCurrent(s);
               })
-              .catch(() => setError('请允许浏览器播放摄像头画面。'));
+              .catch(() => {
+                // A failed playback cannot produce valid frames: release only
+                // this request's stream, never a different newly-created one.
+                releaseCameraIfCurrent(s);
+                if (cameraOperationActive(requestToken)) {
+                  setCameraInterrupted(true);
+                  setError('无法播放摄像头画面；本次流已清理，请重新连接摄像头。');
+                }
+              });
           }
         })
         .catch((e) => {
-          if (!cancelled) setError('无法打开摄像头：' + String(e));
+          if (!cancelled && cameraOperationActive(requestToken)) {
+            setCameraInterrupted(true);
+            setError('无法打开摄像头：' + String(e));
+          }
         });
       return () => {
         cancelled = true;
-        releaseCamera();
+        if (cameraLifecycle.current === requestToken) cameraLifecycle.current += 1;
+        if (ownedStream) releaseCameraIfCurrent(ownedStream);
       };
     }
     attachVideo();
@@ -1165,8 +1413,9 @@ export default function App() {
                 generation: generation.current,
                 aspectRatio: v.videoWidth / Math.max(v.videoHeight, 1),
               });
-            } catch {
+            } catch (error) {
               live.current.frameBusy = false;
+              handlePoseRuntimeFailure('主线程姿态识别异常：' + String(error));
             }
           } else if (currentWorker) {
             const frameGeneration = generation.current;
@@ -1297,27 +1546,28 @@ export default function App() {
       }
     }
   }
-  function reset() {
+  function reset(): boolean {
     if (sessionCheckingRef.current) {
       setError(SAFETY_STATE_CHECKING_NOTICE);
-      return;
+      return false;
     }
     if (storageFaultRef.current) {
       setError(SAFETY_STORAGE_NOTICE);
-      return;
+      return false;
     }
     if (uninitializedRef.current) {
       setError(SAFETY_SESSION_MISSING_NOTICE);
-      return;
+      return false;
     }
     if (stateUnknownRef.current) {
       setError(SAFETY_STATE_UNKNOWN_NOTICE);
-      return;
+      return false;
     }
     if (discomfortBlockedRef.current) {
       setError('本次训练已因不适停止，不能通过重置恢复本组；请结束本组查看阻断报告。');
-      return;
+      return false;
     }
+    setCameraInterrupted(false);
     // Resetting after a report was generated discards the visible report: retire
     // the session so the next analysis cannot reuse input_version=1 for it.
     if (runtimeMode === 'backend' && sessionIdRef.current && reportRef.current) {
@@ -1345,6 +1595,7 @@ export default function App() {
       video.current.currentTime = 0;
       video.current.pause();
     }
+    return true;
   }
   function attachVideo() {
     const node = video.current;
@@ -1372,9 +1623,17 @@ export default function App() {
       setError('本次训练已因不适停止，不能通过切换输入源恢复本组。');
       return;
     }
+    // Re-clicking the selected source is not a source change. Invalidating the
+    // lifecycle token here would make an in-flight getUserMedia() request stale
+    // or release a healthy current camera with no effect re-run to replace it.
+    if (next === sourceModeRef.current) return;
     live.current.running = false;
     setRunning(false);
+    cameraLifecycle.current += 1;
+    sourceModeRef.current = next;
+    releaseCamera();
     setSourceMode(next);
+    setCameraInterrupted(false);
     setError('');
   }
   function onVideoFile(file?: File) {
@@ -1409,6 +1668,10 @@ export default function App() {
       setError('本次训练已因不适停止，不能开始、继续或恢复本组；请结束本组查看阻断报告。');
       return;
     }
+    if (cameraInterrupted) {
+      setError('摄像头连接已中断：请先点击“重新连接摄像头并重置本组”，再开始训练。');
+      return;
+    }
     if (sessionCheckingRef.current) {
       setError(SAFETY_STATE_CHECKING_NOTICE);
       return;
@@ -1435,27 +1698,42 @@ export default function App() {
       setError('请先上传一段包含全身的训练视频。');
       return;
     }
+    let cameraRequestToken: number | null = null;
     if (sourceMode === 'camera' && !stream.current) {
+      cameraRequestToken = ++cameraLifecycle.current;
       try {
-        const s = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'user', width: 1280, height: 720 },
-          audio: false,
-        });
-        if (discomfortBlockedRef.current) {
-          s.getTracks().forEach((track) => track.stop());
+        const s = await acquireCameraStream();
+        if (!cameraOperationActive(cameraRequestToken)) {
+          discardStaleCameraStream(s, cameraRequestToken);
           return;
         }
+        if (stream.current && stream.current !== s) releaseCamera();
         stream.current = s;
+        attachCameraTrackListeners(s);
+        setCameraInterrupted(false);
         if (video.current) {
           video.current.srcObject = s;
-          await video.current.play();
-          if (discomfortBlockedRef.current) {
-            releaseCamera();
+          try {
+            await video.current.play();
+          } catch {
+            if (cameraOperationActive(cameraRequestToken)) {
+              releaseCameraIfCurrent(s);
+              setCameraInterrupted(true);
+              setError('无法播放摄像头画面；本次流已清理，请重新连接摄像头。');
+            } else {
+              discardStaleCameraStream(s, cameraRequestToken);
+            }
+            return;
+          }
+          if (!cameraOperationActive(cameraRequestToken)) {
+            discardStaleCameraStream(s, cameraRequestToken);
             return;
           }
         }
       } catch (e) {
-        setError('无法打开摄像头：' + String(e));
+        if (cameraOperationActive(cameraRequestToken)) {
+          setError('无法打开摄像头：' + String(e));
+        }
         return;
       }
     }
@@ -1903,6 +2181,31 @@ export default function App() {
     a.click();
     URL.revokeObjectURL(url);
   }
+  function exportHistory() {
+    if (!history.length) {
+      setError(
+        '历史尚未加载或为空：请先在复盘页点击“读取已保存记录”。历史导出与当前报告导出是不同操作。',
+      );
+      return;
+    }
+    try {
+      // Export the records actually loaded from the mode's history store, not
+      // the current report/lastReport cache. The array is the existing Report
+      // schema (trace timestamps, completion, quality evidence, proposal, source).
+      const url = URL.createObjectURL(
+        new Blob([JSON.stringify(history, null, 2)], { type: 'application/json' }),
+      );
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `localfit-history-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      // Keep the blob URL alive until the browser has started the download.
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setError('');
+    } catch (e) {
+      setError('导出历史失败：' + String(e));
+    }
+  }
   const nav = [
     ['training', '训练空间', Activity],
     ['report', '训练复盘', ClipboardList],
@@ -1943,9 +2246,10 @@ export default function App() {
         ? '上传视频 · 骨骼重定向'
         : '模拟动作回放 · 非真实测量';
   const canStart =
-    sourceMode === 'simulation' ||
-    (sourceMode === 'video' && Boolean(videoUrl.current || videoName)) ||
-    sourceMode === 'camera';
+    (sourceMode === 'simulation' ||
+      (sourceMode === 'video' && Boolean(videoUrl.current || videoName)) ||
+      sourceMode === 'camera') &&
+    !(sourceMode !== 'simulation' && poseStatus === 'failed');
   const reportFinished =
     report !== null &&
     (report.proposal.blocked ||
@@ -2065,6 +2369,25 @@ export default function App() {
               }}
             >
               重试状态查询
+            </button>
+          </div>
+        )}
+        {poseStatus === 'failed' && (
+          <div role="alert" className="alert safety-stop">
+            <strong>姿态模型加载失败</strong>{' '}
+            当前无法处理摄像头/视频动作；模拟模式仍可使用。请检查本地
+            models/wasm 资源后重试。
+            <button className="secondary" onClick={retryPose}>
+              重试模型加载
+            </button>
+          </div>
+        )}
+        {cameraInterrupted && (
+          <div role="alert" className="alert safety-stop">
+            <strong>摄像头连接已中断</strong>{' '}
+            本次训练已停止计时；重新连接会重置本组计数，不会把无画面时间算作训练。
+            <button className="secondary" onClick={() => void reconnectCamera()}>
+              重新连接摄像头并重置本组
             </button>
           </div>
         )}
@@ -2220,9 +2543,15 @@ export default function App() {
                   <span className="camera-chip">
                     {sourceMode === 'simulation'
                       ? 'DEMO'
-                      : modelReady
+                      : poseStatus === 'worker'
                         ? bodyModel.toUpperCase()
-                        : '模型加载中，仍可先开始'}
+                        : poseStatus === 'main-thread'
+                          ? `${bodyModel.toUpperCase()} · 主线程`
+                          : poseStatus === 'failed'
+                            ? '模型加载失败'
+                            : poseStatus === 'retrying'
+                              ? '模型重试中'
+                              : '模型加载中'}
                   </span>
                 </div>
                 <div className="dual-view">
@@ -2950,6 +3279,7 @@ export default function App() {
                 <button
                   className="secondary danger"
                   onClick={async () => {
+                    const hadReport = report !== null;
                     try {
                       await request('/history', { method: 'DELETE' });
                       recorder.current = new LandmarkRecorder();
@@ -2957,21 +3287,26 @@ export default function App() {
                       setHistory([]);
                       setReport(null);
                       setExplanation('');
-                      if (runtimeMode === 'backend') {
-                        if (discomfortBlockedRef.current) {
-                          // The latch is a separate safety layer and survives the
-                          // user history deletion; only the report payload is gone.
-                          setAnalysisRecovery(null);
-                          if (sessionIdRef.current) {
-                            void refreshSessionState(sessionIdRef.current);
-                          }
-                          setError('历史摘要已删除；本次训练的本地安全阻断仍然有效。');
-                        } else if (sessionIdRef.current) {
-                          // The discarded report belonged to this session; retire it
-                          // so the next analysis uses a fresh session/version.
-                          retireSessionStorage();
-                          setError('历史摘要已删除；本组会话已结束，下次训练将使用新的会话 ID。');
+                      setAnalysisRecovery(null);
+                      lastAnalyzeRef.current = null;
+                      setRemoteDecision(null);
+                      if (hadReport && !discomfortBlockedRef.current) {
+                        // The deleted report/proposal must not be accepted or
+                        // inherited by a later session, but an accepted target
+                        // is the current explicit plan and is intentionally kept.
+                        retireSessionStorage();
+                        setError(
+                          '历史摘要已删除；已删除的报告和提案不再可用。当前训练目标保持不变。',
+                        );
+                      } else if (runtimeMode === 'backend' && discomfortBlockedRef.current) {
+                        // The latch is a separate safety layer and survives the
+                        // user history deletion; only the report payload is gone.
+                        if (sessionIdRef.current) {
+                          void refreshSessionState(sessionIdRef.current);
                         }
+                        setError('历史摘要已删除；本次训练的本地安全阻断仍然有效。');
+                      } else {
+                        setError('历史摘要已删除；当前训练目标和会话保持不变。');
                       }
                     } catch (e) {
                       setError(String(e));
@@ -2981,10 +3316,23 @@ export default function App() {
                   <Trash2 size={15} />
                   删除全部本机摘要
                 </button>
+                <button
+                  className="secondary"
+                  disabled={!history.length}
+                  onClick={exportHistory}
+                >
+                  <Download size={15} />
+                  导出历史 JSON
+                </button>
               </div>
               <p className="muted">
                 历史是存档快照，不代表当前可执行计划；当前会话请以复盘页的实时报告和安全状态为准。
               </p>
+              {!history.length && (
+                <p role="status" className="muted">
+                  历史尚未加载或为空：请先完成并保存训练，再点击“读取已保存记录”。历史导出与当前报告导出是不同操作。
+                </p>
+              )}
               {history.map((r) => (
                 <div className="history-row" key={r.session_id}>
                   <span>

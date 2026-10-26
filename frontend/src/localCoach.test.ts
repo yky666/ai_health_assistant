@@ -7,6 +7,7 @@ import {
   latestReport,
   loadHistory,
   reportFor,
+  HISTORY_LIMIT,
   type LocalSummary,
 } from './localCoach';
 import planCases from '../../shared/plan_cases.json';
@@ -79,6 +80,27 @@ describe('browser coach fallback', () => {
     expect(latestReport()).toBeNull();
     expect(() => reportFor(report.session_id)).toThrow();
     expect(() => acceptLocal(report)).toThrow();
+  });
+  it('keeps browser history aligned with the backend 50-record limit', () => {
+    for (let index = 1; index <= HISTORY_LIMIT + 1; index += 1) {
+      analyzeLocal({
+        ...base,
+        session_id: `capacity-${index}`,
+        input_version: 1,
+        persist: true,
+      });
+    }
+    const history = loadHistory();
+    expect(history).toHaveLength(HISTORY_LIMIT);
+    expect(history[0].session_id).toBe(`capacity-${HISTORY_LIMIT + 1}`);
+    expect(history[history.length - 1].session_id).toBe('capacity-2');
+  });
+  it('distinguishes missing browser history from intentionally empty history', () => {
+    expect(loadHistory()).toEqual([]);
+    sessionStorage.setItem('localfit-browser-history', '[]');
+    expect(loadHistory()).toEqual([]);
+    sessionStorage.setItem('localfit-browser-history', 'not-json');
+    expect(() => loadHistory()).toThrow('解析本地历史记录失败');
   });
   it('does not persist without consent and rejects impossible classified time', () => {
     analyzeLocal(base);
