@@ -142,6 +142,22 @@ async function forceClick(button: HTMLButtonElement) {
   await settle();
 }
 
+async function forceChange(
+  element: HTMLInputElement | HTMLSelectElement,
+  target: Record<string, unknown>,
+) {
+  const propsKey = Object.keys(element).find((key) => key.startsWith('__reactProps$'));
+  const props = propsKey
+    ? (element as unknown as Record<string, { onChange?: (event: unknown) => unknown }>)[propsKey]
+    : null;
+  if (!props?.onChange) throw new Error('React onChange handler not found');
+  await act(async () => {
+    await props.onChange!({ target, currentTarget: element });
+    await flush();
+  });
+  await settle();
+}
+
 function inputFor(labelText: string): HTMLInputElement | HTMLSelectElement {
   const label = [...container.querySelectorAll('label')].find((item) =>
     item.textContent?.includes(labelText),
@@ -532,6 +548,76 @@ describe('authoritative state recovery', () => {
 });
 
 describe('report and decision safety', () => {
+  it('preserves the report and session when source/settings changes are attempted with unknown backend state', async () => {
+    let stateReads = 0;
+    route('GET', '/api/sessions/test-session-1/state', () => {
+      stateReads += 1;
+      return stateReads === 1
+        ? fakeResponse(404, { detail: 'not found' })
+        : fakeResponse(503, { detail: 'store unavailable' });
+    });
+    route('POST', '/api/sessions/analyze', (body) =>
+      fakeResponse(200, analysisReport(String(body?.session_id))),
+    );
+    route('POST', '/api/sessions/test-session-1/accept', () =>
+      fakeResponse(503, { detail: 'store unavailable' }),
+    );
+
+    await renderApp();
+    await toggle(inputFor('显示其他实验动作') as HTMLInputElement);
+    await changeInput(container.querySelector('#exercise') as HTMLSelectElement, 'jumping_jack');
+    await click(findButton('开始 / 继续'));
+    await click(findButton('结束本组并复盘'));
+
+    expect(container.textContent).toContain('本次记录暂不支持增加训练量');
+    expect(storedSession()?.session_id).toBe('test-session-1');
+
+    await click(findButton('确认下一组计划'));
+    expect(container.textContent).toContain('无法确认服务端安全状态');
+    expect(stateReads).toBe(2);
+    expect(storedSession()?.session_id).toBe('test-session-1');
+
+    await click(findButton('训练空间'));
+    const exercise = container.querySelector('#exercise') as HTMLSelectElement;
+    const threshold = container.querySelector(
+      'input[type="range"][min="85"][max="125"]',
+    ) as HTMLInputElement;
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+
+    expect(findButton('真实摄像头').disabled).toBe(true);
+    expect(findButton('上传视频').disabled).toBe(true);
+    expect(findButtonByAria('重置本组').disabled).toBe(true);
+    expect(exercise.disabled).toBe(true);
+    expect(threshold.disabled).toBe(true);
+    expect(fileInput.disabled).toBe(true);
+
+    await forceClick(findButton('真实摄像头'));
+    await forceChange(exercise, { value: 'squat' });
+    await forceChange(threshold, { value: '110' });
+
+    const OriginalURL = globalThis.URL;
+    const createObjectUrl = vi.fn(() => 'blob:blocked-video');
+    vi.stubGlobal(
+      'URL',
+      Object.assign(class TestURL extends OriginalURL {}, {
+        createObjectURL: createObjectUrl,
+        revokeObjectURL: vi.fn(),
+      }) as unknown as typeof URL,
+    );
+    const file = new File(['video'], 'blocked.mp4', { type: 'video/mp4' });
+    await forceChange(fileInput, { files: [file] });
+    await forceClick(findButtonByAria('重置本组'));
+
+    expect(createObjectUrl).not.toHaveBeenCalled();
+    expect(findButton('模拟演示').className).toContain('selected');
+    expect(exercise.value).toBe('jumping_jack');
+    expect(threshold.value).toBe('105');
+    expect(storedSession()?.session_id).toBe('test-session-1');
+
+    await click(findButton('训练复盘'));
+    expect(container.textContent).toContain('本次记录暂不支持增加训练量');
+  });
+
   it('adopts a latched analyze response as blocked state', async () => {
     route('POST', '/api/sessions/analyze', (body) =>
       fakeResponse(
