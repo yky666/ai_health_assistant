@@ -578,6 +578,7 @@ describe('report and decision safety', () => {
     expect(storedSession()?.session_id).toBe('test-session-1');
 
     await click(findButton('训练空间'));
+    const experimental = inputFor('显示其他实验动作') as HTMLInputElement;
     const exercise = container.querySelector('#exercise') as HTMLSelectElement;
     const threshold = container.querySelector(
       'input[type="range"][min="85"][max="125"]',
@@ -591,6 +592,7 @@ describe('report and decision safety', () => {
     expect(threshold.disabled).toBe(true);
     expect(fileInput.disabled).toBe(true);
 
+    await forceChange(experimental, { checked: false });
     await forceClick(findButton('真实摄像头'));
     await forceChange(exercise, { value: 'squat' });
     await forceChange(threshold, { value: '110' });
