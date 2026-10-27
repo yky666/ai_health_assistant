@@ -1042,6 +1042,135 @@ describe('P1.2 sessionStorage failures are fail-closed', () => {
   });
 });
 
+describe('P1.4 sessionStorage reads fail closed', () => {
+  const ordinarySession = () =>
+    sessionStorage.setItem(
+      ACTIVE_SESSION_KEY,
+      JSON.stringify({ session_id: 'stored-but-unreadable' }),
+    );
+  const ordinaryLatch = () =>
+    sessionStorage.setItem(
+      LOCAL_SAFETY_KEY,
+      JSON.stringify({
+        session_id: 'stored-but-unreadable',
+        event_id: 'event-stored-but-unreadable',
+        server_confirmed: false,
+        safety_version: 0,
+      }),
+    );
+
+  it('does not treat a getItem exception as an empty store', async () => {
+    ordinarySession();
+    ordinaryLatch();
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('read denied', 'SecurityError');
+    });
+    await renderApp();
+
+    expect(container.textContent).toContain('浏览器存储不可用');
+    expect(container.textContent).toContain('无法可靠读取');
+    const start = findButton('存储不可用');
+    expect(start.disabled).toBe(true);
+    expect(callsFor('/sessions')).toHaveLength(0);
+    await forceClick(start);
+    expect(callsFor('/sessions/analyze')).toHaveLength(0);
+    expect(callsFor('/accept')).toHaveLength(0);
+  });
+
+  it('does not treat a corrupt active-session key as a new session', async () => {
+    sessionStorage.setItem(ACTIVE_SESSION_KEY, '{broken-json');
+    await renderApp();
+
+    expect(container.textContent).toContain('浏览器存储不可用');
+    expect(container.textContent).toContain('无法可靠读取');
+    expect(findButton('存储不可用').disabled).toBe(true);
+    expect(callsFor('/sessions')).toHaveLength(0);
+  });
+
+  it('does not treat a corrupt safety-latch key as no latch', async () => {
+    sessionStorage.setItem(
+      ACTIVE_SESSION_KEY,
+      JSON.stringify({ session_id: 'active-with-corrupt-latch' }),
+    );
+    sessionStorage.setItem(LOCAL_SAFETY_KEY, '[not-a-latch]');
+    await renderApp();
+
+    expect(container.textContent).toContain('浏览器存储不可用');
+    expect(container.textContent).toContain('无法可靠读取');
+    expect(findButton('存储不可用').disabled).toBe(true);
+    expect(callsFor('/sessions')).toHaveLength(0);
+    expect(callsFor('/accept')).toHaveLength(0);
+  });
+
+  it('keeps a pending local latch blocked after refresh when reads fail', async () => {
+    route('POST', '/api/sessions/test-session-1/safety-events', () =>
+      fakeResponse(503, { detail: 'store unavailable' }),
+    );
+    await renderApp();
+    await click(findButton('开始 / 继续'));
+    await toggle(discomfortInput());
+    await settle();
+    expect(storedSafety()).toMatchObject({ server_confirmed: false });
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('read denied', 'SecurityError');
+    });
+    await renderApp();
+
+    expect(container.textContent).toContain('浏览器存储不可用');
+    expect(findButton('存储不可用').disabled).toBe(true);
+    expect(callsFor('/sessions/analyze')).toHaveLength(0);
+  });
+
+  it('allows a genuinely empty store to start a new session', async () => {
+    await renderApp();
+    const start = findButton('开始 / 继续');
+    expect(start.disabled).toBe(false);
+    await click(start);
+    expect(storedSession()?.session_id).toBe('test-session-1');
+    expect(callsFor('/sessions')).toHaveLength(0);
+  });
+
+  it('does not unblock until storage is readable and the server state check succeeds', async () => {
+    sessionStorage.setItem(
+      ACTIVE_SESSION_KEY,
+      JSON.stringify({ session_id: 'restore-after-read-fault' }),
+    );
+    const readSpy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('read denied', 'SecurityError');
+    });
+    await renderApp();
+    expect(container.textContent).toContain('浏览器存储不可用');
+
+    await act(async () => {
+      root.unmount();
+    });
+    container.remove();
+    readSpy.mockRestore();
+    const stateGate = deferred<FakeResponse>();
+    route('GET', '/api/sessions/restore-after-read-fault/state', () => stateGate.promise);
+    await renderApp();
+
+    expect(container.textContent).toContain('正在核对服务端会话状态');
+    const checking = findButton('正在核对状态…');
+    expect(checking.disabled).toBe(true);
+    await forceClick(checking);
+    expect(callsFor('/sessions/analyze')).toHaveLength(0);
+
+    await act(async () => {
+      stateGate.resolve(fakeResponse(200, statePayload('restore-after-read-fault')));
+      await settle();
+    });
+    expect(findButton('开始 / 继续').disabled).toBe(false);
+    expect(storedSession()?.session_id).toBe('restore-after-read-fault');
+    expect(callsFor('/sessions/analyze')).toHaveLength(0);
+  });
+});
+
 describe('P1.3 late explanation responses are ignored', () => {
   it('never shows an explanation response that arrives after discomfort', async () => {
     route('POST', '/api/sessions/analyze', (body) =>

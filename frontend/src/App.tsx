@@ -67,6 +67,8 @@ const SAFETY_STATE_CHECKING_NOTICE =
   '正在核对服务端会话状态：核对完成前不能开始训练、提交决定或生成报告。';
 const SAFETY_STORAGE_NOTICE =
   '浏览器无法持久化安全状态（会话 ID / 安全锁存）：后端模式下本组保持不可开始或继续，刷新后也不会假定已恢复。请检查浏览器存储权限后刷新页面。';
+const SAFETY_STORAGE_READ_NOTICE =
+  '浏览器存储中的会话/安全状态无法可靠读取或已损坏：本组保持阻断。不会把它当作“没有活动会话”，也不会自动创建新会话；请修复浏览器存储或刷新后重新核对。';
 const SAFETY_SESSION_MISSING_NOTICE =
   '本地保存的训练会话在服务端不存在（可能服务端重启或数据被清理）。本组无法恢复；不会复用旧会话 ID，也不会自动开始新组。';
 const SAFETY_ANALYSIS_LOST_NOTICE =
@@ -99,12 +101,61 @@ type RemoteDecision = {
 };
 type PoseStatus = 'initializing' | 'worker' | 'main-thread' | 'failed' | 'retrying';
 
-function readStored<T>(key: string): T | null {
+type StoredSession = { session_id: string };
+type StoredRead<T> =
+  | { state: 'missing' }
+  | { state: 'ok'; value: T }
+  | { state: 'invalid'; reason: string };
+type BootStorage = {
+  healthy: boolean;
+  active: StoredRead<StoredSession>;
+  safety: StoredRead<StoredSafety>;
+  sessionId: string | null;
+  invalid: boolean;
+  notice: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isStoredSession(value: unknown): value is StoredSession {
+  return isRecord(value) && typeof value.session_id === 'string' && value.session_id.trim() !== '';
+}
+
+function isStoredSafety(value: unknown): value is StoredSafety {
+  return (
+    isRecord(value) &&
+    typeof value.session_id === 'string' &&
+    value.session_id.trim() !== '' &&
+    typeof value.event_id === 'string' &&
+    value.event_id.trim() !== '' &&
+    typeof value.server_confirmed === 'boolean' &&
+    (value.safety_version === null || typeof value.safety_version === 'number')
+  );
+}
+
+function readStored<T>(
+  key: string,
+  validate: (value: unknown) => value is T,
+): StoredRead<T> {
   try {
     const raw = sessionStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : null;
-  } catch {
-    return null;
+    if (raw === null) return { state: 'missing' };
+    if (raw.trim() === '') return { state: 'invalid', reason: 'empty value' };
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { state: 'invalid', reason: 'invalid JSON' };
+    }
+    if (!validate(parsed)) return { state: 'invalid', reason: 'invalid shape' };
+    return { state: 'ok', value: parsed };
+  } catch (error) {
+    return {
+      state: 'invalid',
+      reason: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 /** Returns false when the write could not be guaranteed (private mode/quota). */
@@ -129,18 +180,41 @@ function probeSessionStorage(): boolean {
   const probe = 'localfit-storage-probe';
   try {
     sessionStorage.setItem(probe, '1');
+    if (sessionStorage.getItem(probe) !== '1') return false;
     sessionStorage.removeItem(probe);
-    return true;
+    return sessionStorage.getItem(probe) === null;
   } catch {
     return false;
   }
 }
-/** A stored active-session id or a stored latch must gate the initial paint. */
-function storedSessionCandidate(): string | null {
-  const active = readStored<{ session_id?: string }>(ACTIVE_SESSION_KEY);
-  if (active?.session_id) return active.session_id;
-  const latch = readStored<StoredSafety>(LOCAL_SAFETY_KEY);
-  return latch?.session_id ?? null;
+/** Read and validate the two recovery keys once, before the first paint. */
+function inspectBootStorage(): BootStorage {
+  const healthy = probeSessionStorage();
+  const active = readStored(ACTIVE_SESSION_KEY, isStoredSession);
+  const safety = readStored(LOCAL_SAFETY_KEY, isStoredSafety);
+  const inconsistent =
+    active.state === 'ok' &&
+    safety.state === 'ok' &&
+    active.value.session_id !== safety.value.session_id;
+  const invalid = active.state === 'invalid' || safety.state === 'invalid' || inconsistent;
+  const sessionId =
+    active.state === 'ok'
+      ? active.value.session_id
+      : safety.state === 'ok'
+        ? safety.value.session_id
+        : null;
+  return {
+    healthy,
+    active,
+    safety,
+    sessionId,
+    invalid,
+    notice: invalid
+      ? SAFETY_STORAGE_READ_NOTICE
+      : !healthy
+        ? SAFETY_STORAGE_NOTICE
+        : SAFETY_STORAGE_NOTICE,
+  };
 }
 
 export default function App() {
@@ -263,14 +337,20 @@ export default function App() {
   const [stateUnknown, setStateUnknown] = useState(false);
   // FE-BE-01-R1: fail-closed gates.
   // - sessionChecking: a stored session exists and GET /state has not answered yet.
-  // - storageFault: sessionStorage cannot persist the session id / latch.
+  // - storageFault: sessionStorage cannot reliably read/persist the session id / latch.
   // - sessionUninitialized: the backend answered 404 for the stored session id.
+  const [bootStorage] = useState<BootStorage>(inspectBootStorage);
   const [sessionChecking, setSessionChecking] = useState<boolean>(
-    () => runtimeMode === 'backend' && Boolean(storedSessionCandidate()),
+    () =>
+      runtimeMode === 'backend' &&
+      bootStorage.healthy &&
+      !bootStorage.invalid &&
+      Boolean(bootStorage.sessionId),
   );
   const [storageFault, setStorageFault] = useState<boolean>(
-    () => runtimeMode === 'backend' && !probeSessionStorage(),
+    () => runtimeMode === 'backend' && (!bootStorage.healthy || bootStorage.invalid),
   );
+  const [storageFaultNotice, setStorageFaultNotice] = useState(bootStorage.notice);
   const [sessionUninitialized, setSessionUninitialized] = useState(false);
   const [analysisRecovery, setAnalysisRecovery] = useState<AnalysisRecovery | null>(null);
   const [remoteDecision, setRemoteDecision] = useState<RemoteDecision | null>(null);
@@ -307,33 +387,45 @@ export default function App() {
       setSessionChecking(false);
       return;
     }
-    const healthy = probeSessionStorage();
-    storageFaultRef.current = !healthy;
-    if (!healthy) {
+    const boot = bootStorage;
+    if (!boot.healthy || boot.invalid) {
+      // An unreadable or corrupt active-session/latch key is not the same as an
+      // empty store. Fail closed: never create a new session or query a guessed
+      // id from data we could not validate.
+      storageFaultRef.current = true;
       setStorageFault(true);
-      setError(SAFETY_STORAGE_NOTICE);
+      setStorageFaultNotice(boot.notice);
+      setError(boot.notice);
+      sessionCheckingRef.current = false;
+      setSessionChecking(false);
+      return;
     }
-    const active = readStored<{ session_id?: string }>(ACTIVE_SESSION_KEY);
-    const storedSafety = readStored<StoredSafety>(LOCAL_SAFETY_KEY);
-    const sessionId = active?.session_id ?? storedSafety?.session_id ?? null;
+    const active = boot.active;
+    const storedSafety = boot.safety;
+    const sessionId = boot.sessionId;
     if (!sessionId) {
       sessionCheckingRef.current = false;
       setSessionChecking(false);
       return;
     }
     sessionIdRef.current = sessionId;
-    if (!active?.session_id) {
+    if (active.state !== 'ok') {
       // The latch survived but the active-session key did not. Re-persist the
       // identity best-effort and keep the block regardless of the outcome.
       if (!writeStored(ACTIVE_SESSION_KEY, { session_id: sessionId })) noteStorageFault();
     }
-    if (storedSafety && storedSafety.session_id === sessionId && storedSafety.event_id) {
-      safetyEventIdRef.current = storedSafety.event_id;
-      if (storedSafety.safety_version != null) setSafetyVersionValue(storedSafety.safety_version);
+    if (
+      storedSafety.state === 'ok' &&
+      storedSafety.value.session_id === sessionId &&
+      storedSafety.value.event_id
+    ) {
+      safetyEventIdRef.current = storedSafety.value.event_id;
+      if (storedSafety.value.safety_version != null)
+        setSafetyVersionValue(storedSafety.value.safety_version);
       discomfortBlockedRef.current = true;
       setDiscomfort(true);
       setDiscomfortBlocked(true);
-      setSafetySyncState(storedSafety.server_confirmed ? 'confirmed' : 'pending');
+      setSafetySyncState(storedSafety.value.server_confirmed ? 'confirmed' : 'pending');
     }
     sessionCheckingRef.current = true;
     setSessionChecking(true);
@@ -749,10 +841,11 @@ export default function App() {
     uninitializedRef.current = next;
     setSessionUninitialized(next);
   }
-  function noteStorageFault() {
+  function noteStorageFault(notice = SAFETY_STORAGE_NOTICE) {
     storageFaultRef.current = true;
     setStorageFault(true);
-    setError(SAFETY_STORAGE_NOTICE);
+    setStorageFaultNotice(notice);
+    setError(notice);
   }
   function clearRecovery() {
     setAnalysisRecovery(null);
@@ -761,7 +854,7 @@ export default function App() {
     // Fail-closed: without guaranteed persistence the session id/latch could not
     // be restored after a refresh, so a new group must not start.
     if (storageFaultRef.current) {
-      setError(SAFETY_STORAGE_NOTICE);
+      setError(storageFaultNotice);
       return false;
     }
     const id = crypto.randomUUID();
@@ -1013,7 +1106,7 @@ export default function App() {
     setReport(null);
     setExplanation('');
     setError('');
-    if (!beginSession()) setError(SAFETY_STORAGE_NOTICE);
+    if (!beginSession()) setError(storageFaultNotice);
   }
   async function reconcileLostAnalysis(targetSessionId: string) {
     if (runtimeMode !== 'backend') return;
@@ -1079,7 +1172,7 @@ export default function App() {
   }
   function discardUninitializedSession() {
     if (storageFaultRef.current) {
-      setError(SAFETY_STORAGE_NOTICE);
+      setError(storageFaultNotice);
       return;
     }
     // Explicit user confirmation: the old local session/latch cannot be mapped to
@@ -1552,7 +1645,7 @@ export default function App() {
       return false;
     }
     if (storageFaultRef.current) {
-      setError(SAFETY_STORAGE_NOTICE);
+      setError(storageFaultNotice);
       return false;
     }
     if (uninitializedRef.current) {
@@ -1612,7 +1705,7 @@ export default function App() {
       return;
     }
     if (storageFaultRef.current) {
-      setError(SAFETY_STORAGE_NOTICE);
+      setError(storageFaultNotice);
       return;
     }
     if (uninitializedRef.current) {
@@ -1650,7 +1743,7 @@ export default function App() {
       return;
     }
     if (storageFaultRef.current) {
-      setError(SAFETY_STORAGE_NOTICE);
+      setError(storageFaultNotice);
       return;
     }
     if (uninitializedRef.current) {
@@ -1685,7 +1778,7 @@ export default function App() {
       return;
     }
     if (storageFaultRef.current) {
-      setError(SAFETY_STORAGE_NOTICE);
+      setError(storageFaultNotice);
       return;
     }
     if (uninitializedRef.current) {
@@ -1872,7 +1965,7 @@ export default function App() {
       return;
     }
     if (storageFaultRef.current) {
-      setError(SAFETY_STORAGE_NOTICE);
+      setError(storageFaultNotice);
       return;
     }
     if (uninitializedRef.current) {
@@ -1997,7 +2090,7 @@ export default function App() {
   }
   function decisionGates(): string | null {
     if (sessionCheckingRef.current) return SAFETY_STATE_CHECKING_NOTICE;
-    if (storageFaultRef.current) return SAFETY_STORAGE_NOTICE;
+    if (storageFaultRef.current) return storageFaultNotice;
     if (uninitializedRef.current) return SAFETY_SESSION_MISSING_NOTICE;
     if (stateUnknownRef.current) return SAFETY_STATE_UNKNOWN_NOTICE;
     return null;
@@ -2410,7 +2503,7 @@ export default function App() {
         )}
         {runtimeMode === 'backend' && storageFault && (
           <div role="alert" className="alert safety-stop">
-            <strong>浏览器存储不可用</strong> {SAFETY_STORAGE_NOTICE}
+            <strong>浏览器存储不可用</strong> {storageFaultNotice}
           </div>
         )}
         {runtimeMode === 'backend' && sessionUninitialized && (
