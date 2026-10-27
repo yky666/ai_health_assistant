@@ -1,6 +1,6 @@
-# 验证记录
+﻿# 验证记录
 
-**2026-10-27 最新软件检查（当前工作区）：**自动化前端测试 **243** 项、后端 **133** 项通过；生产构建通过；本地模型/WASM 资源检查通过；真实浏览器 E2E **10/10** 通过（显式设置 `LOCALFIT_E2E_DB` 后）。上述仅为自动化与真实浏览器 E2E 结果；真实摄像头、断网重启和目标设备性能**尚未验证**。详见 `WANG_JINGYI_STORAGE_READ_FIX_20261027.md`、`WANG_JINGYI_FINAL_FIX_01_20261026.md`、`WANG_JINGYI_FIX_REVIEW_20261026.md`、`WANG_JINGYI_IMPLEMENTATION_20261026.md` 与下方记录。
+**2026-10-27 最新软件检查（当前工作区）：**自动化前端测试 **244** 项、后端 **133** 项通过；生产构建通过；本地模型/WASM 资源检查通过；真实浏览器 E2E **10/10** 通过（显式设置 `LOCALFIT_E2E_DB` 后）。上述仅为自动化与真实浏览器 E2E 结果；真实摄像头、断网重启和目标设备性能**尚未验证**。详见 `WANG_JINGYI_STORAGE_READ_FIX_20261027.md`、`WANG_JINGYI_FINAL_FIX_01_20261026.md`、`WANG_JINGYI_FIX_REVIEW_20261026.md`、`WANG_JINGYI_IMPLEMENTATION_20261026.md` 与下方记录。
 
 **2026-10-22 历史记录：**前端 120、后端 61 项通过；生产构建、24 场景跨端对照、12 个合成片段、本地资源与单独回环服务 API 冒烟通过。详见 [本轮实施与证据快照](IMPLEMENTATION_2026-10-22.md)。以下日期对应历史记录，不能用来替代真人/设备验收。
 
@@ -77,7 +77,7 @@
 
 | 检查 | 实际结果 |
 |---|---|
-| `cd frontend; npm test` | **243 passed** / 12 files，exit 0 |
+| `cd frontend; npm test` | **244 passed** / 12 files，exit 0 |
 | `python -m pytest backend/tests -q` | **133 passed**，exit 0 |
 | `npm run build` | exit 0，TypeScript + Vite 构建成功 |
 | `python scripts/check_local_assets.py` | exit 0；固定模型 SHA、WASM、构建入口通过 |

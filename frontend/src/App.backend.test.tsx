@@ -1169,6 +1169,28 @@ describe('P1.4 sessionStorage reads fail closed', () => {
     expect(storedSession()?.session_id).toBe('restore-after-read-fault');
     expect(callsFor('/sessions/analyze')).toHaveLength(0);
   });
+
+  it('keeps the storage gate when the probe cannot read back its own value', async () => {
+    ordinarySession();
+    ordinaryLatch();
+    const original = Storage.prototype.getItem;
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(function (
+      this: Storage,
+      key: string,
+    ) {
+      if (key === 'localfit-storage-probe') return 'unexpected';
+      return original.call(this, key);
+    });
+    await renderApp();
+
+    expect(container.textContent).toContain('浏览器存储不可用');
+    const start = findButton('存储不可用');
+    expect(start.disabled).toBe(true);
+    await forceClick(start);
+    expect(callsFor('/sessions')).toHaveLength(0);
+    expect(callsFor('/sessions/analyze')).toHaveLength(0);
+    expect(callsFor('/accept')).toHaveLength(0);
+  });
 });
 
 describe('P1.3 late explanation responses are ignored', () => {
