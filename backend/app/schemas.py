@@ -81,6 +81,33 @@ class SessionSummary(BaseModel):
 class AcceptProposal(BaseModel):
     input_version: int = Field(ge=1)
     proposal_id: str | None = Field(default=None, max_length=150)
+    # Optional so old clients keep working; the server always re-checks the
+    # authoritative latch/safety version in SQLite, it never trusts the client.
+    expected_safety_version: int | None = Field(default=None, ge=0)
+
+
+class SafetyEvent(BaseModel):
+    """Client-reported safety event (currently only discomfort)."""
+
+    event_id: str = Field(min_length=1, max_length=100, pattern=r"^[a-zA-Z0-9_.:-]+$")
+    type: Literal["discomfort"] = "discomfort"
+    note: str | None = Field(default=None, max_length=200)
+
+
+class SessionState(BaseModel):
+    """Metadata-only view of an active session; never contains report payloads."""
+
+    session_id: str
+    status: Literal["active", "expired"]
+    safety_latched: bool
+    safety_version: int
+    input_version: int | None = None
+    proposal_id: str | None = None
+    proposal_status: str | None = None
+    decided_at: str | None = None
+    persist_history: bool = False
+    report_recoverable: bool = False
+    expires_at: str
 
 
 class FoodEntry(BaseModel):

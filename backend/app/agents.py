@@ -5,7 +5,14 @@ from .schemas import SessionSummary
 from .contract import CONTRACT, POLICY
 
 
-def analyze(summary: SessionSummary) -> dict:
+def analyze(summary: SessionSummary, *, safety_latched: bool = False) -> dict:
+    """Build the deterministic report.
+
+    ``safety_latched`` is the authoritative latched state read from SQLite by the
+    API layer.  It is combined with the legacy ``discomfort`` field so a report
+    generated after a latch is never executable and the ``safety_gate`` trace
+    reflects the real safety decision instead of only the request field.
+    """
     trace = []
 
     def record(role: str, evidence: dict, decision: str):
@@ -23,12 +30,13 @@ def analyze(summary: SessionSummary) -> dict:
                                "experimental_rom": rom_counts, "recorded_reps": len(summary.rep_details)},
            "汇总动作证据；识别覆盖率不足时不判断动作质量。")
 
-    blocked = summary.discomfort
+    blocked = summary.discomfort or safety_latched
     low_evidence = coverage < POLICY["minimum_coverage"] or summary.active_seconds < POLICY["minimum_seconds"]
     target = summary.target_reps
     rest = POLICY["baseline_rest_seconds"]
     if blocked:
-        reason = "用户报告不适：暂停训练，取消继续训练建议。"
+        reason = ("用户报告不适：暂停训练，取消继续训练建议。" if summary.discomfort
+                  else "服务端已记录不适事件：会话已锁存，禁止继续训练。")
     elif low_evidence:
         reason = "有效观察不足：保持计划，先调整机位或补充训练记录。"
     elif summary.fatigue >= POLICY["high_fatigue"] or completion < POLICY["minimum_completion"]:
@@ -41,8 +49,10 @@ def analyze(summary: SessionSummary) -> dict:
     else:
         reason = "本次记录暂不支持增加训练量，保持计划并继续观察。"
     record("plan_adapter", {"fatigue": summary.fatigue, "discomfort": blocked,
+                            "safety_latched": safety_latched,
                             "low_evidence": low_evidence}, reason)
-    record("safety_gate", {"blocked": blocked, "target_reps": target, "rest_seconds": rest},
+    record("safety_gate", {"blocked": blocked, "target_reps": target, "rest_seconds": rest,
+                           "safety_latched": safety_latched},
            "阻止继续训练。" if blocked else "候选计划通过预设规则，等待用户确认。")
 
     energy = {

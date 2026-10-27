@@ -60,5 +60,43 @@ export type Report = {
     decision: string;
     evidence: Record<string, unknown>;
     timestamp: string;
+    pre_latch?: boolean;
+    historical?: boolean;
   }[];
+  // Backend-mode safety metadata. Browser-mode reports do not have it.
+  safety_latched?: boolean;
+  safety_version?: number;
+};
+
+export type SessionState = {
+  session_id: string;
+  status: 'active' | 'expired';
+  safety_latched: boolean;
+  safety_version: number;
+  input_version: number | null;
+  proposal_id: string | null;
+  proposal_status: string | null;
+  decided_at: string | null;
+  persist_history: boolean;
+  report_recoverable: boolean;
+  expires_at: string;
+};
+
+export type SafetyEventReceipt = {
+  session_id: string;
+  event_id: string;
+  event_type: string;
+  safety_latched: boolean;
+  safety_version: number;
+  status: string;
+  duplicate: boolean;
+};
+
+export type ExplanationResponse = {
+  text: string;
+  runtime: string;
+  input_version: number;
+  safety_latched?: boolean;
+  safety_version?: number;
+  blocked?: boolean;
 };

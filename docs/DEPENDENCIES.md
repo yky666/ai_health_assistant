@@ -8,7 +8,7 @@
 | Vite / TypeScript / Vitest | 构建、类型、测试 | 安装包 LICENSE，发布前再次审核 |
 | lucide-react | 界面图标 | ISC，安装包 LICENSE |
 | @mediapipe/tasks-vision | 姿态 runtime | Apache-2.0，npm 包与上游仓库 |
-| Pose Landmarker Lite 权重 | 姿态 | 独立下载，发布前核对模型分发条款；不自动继承网页示例许可证 |
+| Pose Landmarker Lite 权重 | 姿态 | 官方 BlazePose GHUM 3D Model Card：`https://storage.googleapis.com/mediapipe-assets/Model%20Card%20BlazePose%20GHUM%203D.pdf`，Apache-2.0；发布时保留许可/声明，SHA-256 仅作下载完整性校验，不是上游签名 |
 | FastAPI / Pydantic / Uvicorn / httpx / pytest | 后端 | 安装包许可，以锁版本逐项复核 |
 | Python-Markdown | 文档构建 | BSD，独立工具依赖 |
 | llama.cpp（可选） | 同机 LLM 推理 | MIT，上游仓库；不随代码捆绑 |

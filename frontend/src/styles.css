@@ -671,6 +671,20 @@ input[type='range'] {
   margin-bottom: 18px;
   overflow-wrap: anywhere;
 }
+.alert.safety-stop {
+  background: #fff4ee;
+  border-color: #d9a27e;
+  color: #5d3524;
+}
+.safety-block-note {
+  margin: 8px 0 0;
+  padding: 9px 11px;
+  border-left: 3px solid #b7744d;
+  background: #fff6ef;
+  color: #70452e;
+  font-size: 11px;
+  line-height: 1.7;
+}
 .stats-grid {
   display: grid;
   grid-template-columns: 1fr 1fr 1.4fr;

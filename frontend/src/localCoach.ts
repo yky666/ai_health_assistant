@@ -35,8 +35,16 @@ export type LocalSummary = {
 };
 
 const HISTORY_KEY = 'localfit-browser-history';
+/** Keep browser history aligned with the backend's existing 50-row limit. */
+export const HISTORY_LIMIT = 50;
 let lastReport: Report | null = null;
 const reports = new Map<string, Report>();
+
+function ensureNotAborted(signal?: AbortSignal) {
+  if (signal?.aborted) {
+    throw new DOMException('本地提交已因安全阻断取消。', 'AbortError');
+  }
+}
 
 export function reportFor(sessionId: string): Report {
   const report = reports.get(sessionId);
@@ -44,7 +52,8 @@ export function reportFor(sessionId: string): Report {
   return structuredClone(report);
 }
 
-export function analyzeLocal(summary: LocalSummary): Report {
+export function analyzeLocal(summary: LocalSummary, signal?: AbortSignal): Report {
+  ensureNotAborted(signal);
   if (summary.schema_version !== undefined && summary.schema_version !== contract.schema_version)
     throw new Error('不支持的数据合同版本。');
   if (
@@ -238,19 +247,27 @@ export function analyzeLocal(summary: LocalSummary): Report {
       },
     ],
   };
-  // Commit memory only after requested persistence succeeds; the same version can retry on failure.
-  if (summary.persist) saveHistory(report);
-  lastReport = structuredClone(report);
-  reports.set(summary.session_id, structuredClone(report));
+  // Prepare both owned copies before persistence; a failed write must not commit or evict.
+  const committed = structuredClone(report);
+  const result = structuredClone(report);
+  ensureNotAborted(signal);
+  if (summary.persist) saveHistory(committed);
+  lastReport = committed;
+  reports.set(summary.session_id, committed);
   if (reports.size > 100) reports.delete(reports.keys().next().value!);
-  return report;
+  return result;
 }
 
 export function latestReport() {
   return lastReport ? structuredClone(lastReport) : null;
 }
 
-export function decideLocal(report: Report, decision: 'accepted' | 'rejected'): Report {
+export function decideLocal(
+  report: Report,
+  decision: 'accepted' | 'rejected',
+  signal?: AbortSignal,
+): Report {
+  ensureNotAborted(signal);
   const current = reportFor(report.session_id);
   if (
     current.input_version !== report.input_version ||
@@ -264,13 +281,17 @@ export function decideLocal(report: Report, decision: 'accepted' | 'rejected'): 
     ...current,
     proposal: { ...current.proposal, status: decision, decided_at: new Date().toISOString() },
   };
-  if (current.saved) saveHistory(next);
-  reports.set(next.session_id, structuredClone(next));
-  lastReport = next;
-  return structuredClone(next);
+  const committed = structuredClone(next);
+  const result = structuredClone(next);
+  ensureNotAborted(signal);
+  if (current.saved) saveHistory(committed);
+  reports.set(next.session_id, committed);
+  lastReport = committed;
+  return result;
 }
 
-export const acceptLocal = (report: Report) => decideLocal(report, 'accepted');
+export const acceptLocal = (report: Report, signal?: AbortSignal) =>
+  decideLocal(report, 'accepted', signal);
 
 export function estimateFood(
   query: string,
@@ -283,35 +304,40 @@ export function estimateFood(
 }
 
 export function loadHistory(): Report[] {
+  let stored: string | null;
   try {
-    const items = JSON.parse(sessionStorage.getItem(HISTORY_KEY) || '[]');
-    return Array.isArray(items)
-      ? items
-          .filter(
-            (item) =>
-              item &&
-              typeof item.session_id === 'string' &&
-              item.proposal &&
-              Array.isArray(item.trace),
-          )
-          .slice(0, 20)
-      : [];
+    stored = sessionStorage.getItem(HISTORY_KEY);
   } catch {
-    return [];
+    throw new Error('读取本地历史记录失败，未覆盖已有历史。');
   }
+  if (stored === null) return [];
+  let items: unknown;
+  try {
+    items = JSON.parse(stored);
+  } catch {
+    throw new Error('解析本地历史记录失败，未覆盖已有历史。');
+  }
+  if (
+    !Array.isArray(items) ||
+    !items.every(
+      (item) =>
+        item && typeof item.session_id === 'string' && item.proposal && Array.isArray(item.trace),
+    )
+  )
+    throw new Error('本地历史记录格式无效，未覆盖已有历史。');
+  return items.slice(0, HISTORY_LIMIT);
 }
 
 export function clearHistory() {
-  try {
-    sessionStorage.removeItem(HISTORY_KEY);
-  } finally {
-    reports.clear();
-    lastReport = null;
-  }
+  // Delete persisted history first: a failed storage delete must propagate to the caller
+  // with memory untouched, so a failed clear never leaves the two layers out of sync.
+  sessionStorage.removeItem(HISTORY_KEY);
+  reports.clear();
+  lastReport = null;
 }
 
 function saveHistory(report: Report) {
   const items = loadHistory().filter((item) => item.session_id !== report.session_id);
   items.unshift(report);
-  sessionStorage.setItem(HISTORY_KEY, JSON.stringify(items.slice(0, 20)));
+  sessionStorage.setItem(HISTORY_KEY, JSON.stringify(items.slice(0, HISTORY_LIMIT)));
 }

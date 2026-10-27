@@ -34,8 +34,14 @@ def test_discomfort_cannot_be_accepted():
 
 def test_stale_write_and_accept_rejected():
     reports.clear()
-    assert client.post("/api/sessions/analyze", json=payload()).status_code == 200
-    assert client.post("/api/sessions/analyze", json=payload()).status_code == 409
+    first = client.post("/api/sessions/analyze", json=payload())
+    assert first.status_code == 200
+    # Same input_version + same normalized input is an idempotent replay.
+    replay = client.post("/api/sessions/analyze", json=payload())
+    assert replay.status_code == 200
+    assert replay.json()["proposal"]["proposal_id"] == first.json()["proposal"]["proposal_id"]
+    # Same input_version with different content is a hard conflict.
+    assert client.post("/api/sessions/analyze", json=payload(reps=5)).status_code == 409
     assert client.post("/api/sessions/test-session/accept", json={"input_version": 2}).status_code == 409
 
 
@@ -46,10 +52,18 @@ def test_invalid_observation_duration_rejected():
 def test_no_persistence_without_consent(tmp_path, monkeypatch):
     from app import main
     from app.storage import Storage
-    monkeypatch.setattr(main, "storage", Storage(tmp_path / "test.sqlite"))
+    store = Storage(tmp_path / "test.sqlite")
+    monkeypatch.setattr(main, "storage", store)
     reports.clear()
     client.post("/api/sessions/analyze", json=payload())
-    assert not (tmp_path / "test.sqlite").exists()
+    # No user history is written without consent.
+    assert store.list() == []
+    # The minimum safety metadata exists so a restart cannot bypass a latch...
+    state = store.read_session("test-session")
+    assert state is not None
+    # ...but it never contains the full report payload.
+    assert state["report_json"] is None
+    assert state["persist_history"] == 0
 
 
 def test_video_source_and_body_profile_accepted():

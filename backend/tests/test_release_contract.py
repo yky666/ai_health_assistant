@@ -51,5 +51,14 @@ def test_delete_removes_persistent_history_and_pending_authority(tmp_path, monke
         assert len(client.get("/api/history").json()) == 1
         assert client.delete("/api/history").status_code == 200
         assert client.get("/api/history").json() == []
-        assert client.post("/api/sessions/transaction/accept", json={"input_version": report["input_version"]}).status_code == 404
-        assert client.post("/api/sessions/transaction/explanation").status_code == 404
+        # Deleting the user history does not destroy the safety/version authority:
+        # the report payload is gone, so later decisions/explanations are refused
+        # as not recoverable instead of silently pretending the session never existed.
+        deleted_decision = client.post(
+            "/api/sessions/transaction/accept", json={"input_version": report["input_version"]}
+        )
+        assert deleted_decision.status_code == 409
+        assert "deleted" in deleted_decision.text
+        deleted_explanation = client.post("/api/sessions/transaction/explanation")
+        assert deleted_explanation.status_code == 409
+        assert "deleted" in deleted_explanation.text
