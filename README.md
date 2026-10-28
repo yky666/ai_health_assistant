@@ -10,6 +10,8 @@
 
 ## 文档入口
 
+**10/28 刘小凡算法交付：** [修复、实测证据与待验收项](docs/LXF_DELIVERY_2026-10-28.md)。
+
 **10/29 冲刺：** [最新资产盘点与四人分工](docs/冲刺分工_2026-10-29.md)（杨开元、刘小凡、王靖贻、徐倩茹；2026-10-21 代码核对）。
 
 **10/22 杨开元 / 刘小凡交付：** [实施与交接记录](docs/IMPLEMENTATION_2026-10-22.md) · [合同冻结](docs/CONTRACT_FREEZE_2026-10-22.md) · [标注及回放规范](docs/ANNOTATION_PROTOCOL.md)。上一轮：[10/21 实施记录](docs/IMPLEMENTATION_2026-10-21.md) · [待填写人工验收表](docs/ACCEPTANCE_CHECKLIST.md)。

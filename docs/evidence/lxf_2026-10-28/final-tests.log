@@ -1,0 +1,15 @@
+
+> localfit-web@0.1.0 test
+> vitest run --reporter=dot
+
+
+ RUN  v5.0.3 /mnt/data/open_atom_track1/ai_health_assistant/frontend
+
+··················································································································································································································································Not implemented: HTMLMediaElement's pause() method
+··········································
+
+ Test Files  12 passed (12)
+      Tests  284 passed (284)
+   Start at  10:18:58
+   Duration  1.73s (tests 43%, transform 25%, environment 20%, import 11%, worker 1%)
+
