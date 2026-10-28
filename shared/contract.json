@@ -1,7 +1,7 @@
 {
   "schema_version": "localfit.session.v1",
   "policy_version": "localfit.rules.2026-10-22",
-  "algorithm_version": "localfit.pose.2026-10-22",
+  "algorithm_version": "localfit.pose.2026-10-28",
   "core_exercises": ["squat", "jumping_jack"],
   "policy": {
     "minimum_coverage": 0.6,

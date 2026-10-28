@@ -126,6 +126,8 @@ export class ExerciseEngine {
       needed.every(
         (i) =>
           points[i] &&
+          Number.isFinite(points[i].x) &&
+          Number.isFinite(points[i].y) &&
           Number.isFinite(points[i].visibility) &&
           (points[i].visibility ?? 0) >= poseRules.minimum_visibility &&
           points[i].x >= 0 &&
@@ -394,9 +396,11 @@ export class ExerciseEngine {
         this.reps++;
         this.lastRep = time;
         this.state = 'ready';
+        this.jackStart = time;
         return this.result(true, '完成一次开合。手臂过头、双脚打开后再收回。');
       }
-      if (!this.armed) this.jackStart = time;
+      // Start from the latest confirmed closed endpoint; idle time is not a cycle.
+      this.jackStart = time;
       this.armed = true;
       this.state = 'ready';
       return this.result(true, '双手放体侧、双脚并拢，准备下一次打开。');

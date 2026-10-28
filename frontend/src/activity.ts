@@ -4,18 +4,33 @@ import contract from '../../shared/contract.json';
 export type ActivityState = 'work' | 'rest' | 'unknown';
 /** Causal movement heuristic, not a physiological intensity measurement. */
 export class ActivityTracker {
-  private previous: { points: Point[]; time: number } | null = null;
+  private previous: { points: Point[]; time: number; aspect: number } | null = null;
   private lastMovement = -Infinity;
+  private lastSampleTime: number | null = null;
   update(points: Point[], time: number, quality: boolean, aspect = 1): ActivityState {
     const indices = [11, 12, 23, 24, 25, 26, 27, 28];
-    if (!quality || !Number.isFinite(time) || !Number.isFinite(aspect) || aspect <= 0) {
+    if (
+      !Number.isFinite(time) ||
+      time < 0 ||
+      (this.lastSampleTime !== null && time <= this.lastSampleTime)
+    ) {
+      this.previous = null;
+      this.lastMovement = -Infinity;
+      return 'unknown';
+    }
+    this.lastSampleTime = time;
+    if (!quality || !Number.isFinite(aspect) || aspect <= 0) {
       this.previous = null;
       this.lastMovement = -Infinity;
       return 'unknown';
     }
     const previous = this.previous;
-    this.previous = { points: points.map((p) => ({ ...p })), time };
-    if (!previous || time <= previous.time || time - previous.time > contract.pose.maximum_gap_ms) {
+    this.previous = { points: points.map((p) => ({ ...p })), time, aspect };
+    if (
+      !previous ||
+      previous.aspect !== aspect ||
+      time - previous.time > contract.pose.maximum_gap_ms
+    ) {
       this.lastMovement = -Infinity;
       return 'unknown';
     }

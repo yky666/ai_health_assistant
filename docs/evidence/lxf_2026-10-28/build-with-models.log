@@ -1,0 +1,15 @@
+
+> localfit-web@0.1.0 build
+> tsc -b && vite build
+
+vite v7.3.7 building client environment for production...
+transforming...
+✓ 1598 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                        0.42 kB │ gzip:   0.32 kB
+dist/assets/pose.worker-DN8D2Zzi.js  126.88 kB
+dist/assets/index-D6nXFCwM.css        12.34 kB │ gzip:   3.53 kB
+dist/assets/pose-C_2ca8Dj.js         126.35 kB │ gzip:  38.69 kB
+dist/assets/index-GPCNigYq.js        362.15 kB │ gzip: 114.36 kB
+✓ built in 1.36s

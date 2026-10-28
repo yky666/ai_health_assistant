@@ -1,0 +1,109 @@
+
+ RUN  v5.0.3 /mnt/data/open_atom_track1/ai_health_assistant/frontend
+
+ ❯ src/activity.test.ts (6 tests | 3 failed) 18ms
+   ❯ activity observation boundaries (3)
+     × does not resume activity below the last accepted timestamp 12ms
+     × treats a changed image geometry as a new observation 1ms
+     × rejects negative timestamps 1ms
+ ❯ src/engine.test.ts (25 tests | 3 failed) 32ms
+   ❯ LXF core observation regressions (3)
+     × rejects nonnumeric squat coordinates 4ms
+     × rejects nonnumeric jumping_jack coordinates 0ms
+     × does not credit standing idle time to a too-fast jack cycle 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/activity.test.ts > activity observation boundaries > does not resume activity below the last accepted timestamp
+AssertionError: expected 'work' to be 'unknown' // Object.is equality
+
+Expected: "unknown"
+Received: "work"
+
+ ❯ src/activity.test.ts:34:66
+     32|     tracker.update(simulatedPose(0, 'squat'), 500, true);
+     33|     expect(tracker.update(simulatedPose(800, 'squat'), 100, true)).toB…
+     34|     expect(tracker.update(simulatedPose(0, 'squat'), 200, true)).toBe(…
+       |                                                                  ^
+     35|     expect(tracker.update(simulatedPose(800, 'squat'), 300, true)).toB…
+     36|     expect(tracker.update(simulatedPose(0, 'squat'), 600, true)).toBe(…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  src/activity.test.ts > activity observation boundaries > treats a changed image geometry as a new observation
+AssertionError: expected 'work' to be 'unknown' // Object.is equality
+
+Expected: "unknown"
+Received: "work"
+
+ ❯ src/activity.test.ts:44:51
+     42|     tracker.update(p, 0, true, 1);
+     43|     const resized = p.map((v) => ({ ...v, x: v.x / 2 }));
+     44|     expect(tracker.update(resized, 100, true, 2)).toBe('unknown');
+       |                                                   ^
+     45|     expect(tracker.update(resized, 200, true, 2)).toBe('rest');
+     46|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  src/activity.test.ts > activity observation boundaries > rejects negative timestamps
+AssertionError: expected 'rest' to be 'unknown' // Object.is equality
+
+Expected: "unknown"
+Received: "rest"
+
+ ❯ src/activity.test.ts:51:42
+     49|     const p = simulatedPose(0, 'squat');
+     50|     expect(tracker.update(p, -100, true)).toBe('unknown');
+     51|     expect(tracker.update(p, -50, true)).toBe('unknown');
+       |                                          ^
+     52|   });
+     53| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  src/engine.test.ts > LXF core observation regressions > rejects nonnumeric squat coordinates
+ FAIL  src/engine.test.ts > LXF core observation regressions > rejects nonnumeric jumping_jack coordinates
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ src/engine.test.ts:127:28
+    125|     (p[27] as unknown as { x: string }).x = '0.5';
+    126|     const result = new ExerciseEngine(exercise).update(p, 0);
+    127|     expect(result.quality).toBe(false);
+       |                            ^
+    128|     expect(result.unknown_reason).not.toBe('');
+    129|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  src/engine.test.ts > LXF core observation regressions > does not credit standing idle time to a too-fast jack cycle
+AssertionError: expected 1 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ src/engine.test.ts:141:26
+    139|     let result;
+    140|     for (let t = 2200; t <= 2350; t += 50) result = e.update(closed, t…
+    141|     expect(result!.reps).toBe(0);
+       |                          ^
+    142|     // A subsequent complete, sufficiently long cycle still counts onc…
+    143|     for (let t = 2400; t <= 3000; t += 50) e.update(open, t);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  6 failed | 25 passed (31)
+   Start at  10:18:03
+   Duration  190ms (transform 63%, tests 23%, import 11%, worker 2%)
+

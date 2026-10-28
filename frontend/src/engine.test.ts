@@ -118,3 +118,88 @@ describe('exercise engine', () => {
     expect(result!.reps).toBe(0);
   });
 });
+
+describe('LXF core observation regressions', () => {
+  it.each(['squat', 'jumping_jack'] as const)('rejects nonnumeric %s coordinates', (exercise) => {
+    const p = simulatedPose(0, exercise);
+    (p[27] as unknown as { x: string }).x = '0.5';
+    const result = new ExerciseEngine(exercise).update(p, 0);
+    expect(result.quality).toBe(false);
+    expect(result.unknown_reason).not.toBe('');
+  });
+  it('does not credit standing idle time to a too-fast jack cycle', () => {
+    const e = new ExerciseEngine('jumping_jack');
+    const closed = simulatedPose(0, 'jumping_jack');
+    const open = structuredClone(closed);
+    open[15].y = open[16].y = 0.1;
+    open[27].x = 0.25;
+    open[28].x = 0.75;
+    for (let t = 0; t <= 2000; t += 50) e.update(closed, t);
+    for (let t = 2050; t <= 2150; t += 50) e.update(open, t);
+    let result;
+    for (let t = 2200; t <= 2350; t += 50) result = e.update(closed, t);
+    expect(result!.reps).toBe(0);
+    // A subsequent complete, sufficiently long cycle still counts once.
+    for (let t = 2400; t <= 3000; t += 50) e.update(open, t);
+    for (let t = 3050; t <= 3200; t += 50) result = e.update(closed, t);
+    expect(result!.reps).toBe(1);
+  });
+});
+
+describe('LXF core acceptance matrix', () => {
+  it.each(
+    (['squat', 'jumping_jack'] as const).flatMap((exercise) =>
+      [10, 15, 20, 30, 60].flatMap((fps) =>
+        [1, 4 / 3, 16 / 9].map((aspect) => ({ exercise, fps, aspect })),
+      ),
+    ),
+  )(
+    'three complete $exercise cycles at $fps FPS, aspect $aspect',
+    async ({ exercise, fps, aspect }) => {
+      const { fixturePose } = await import('./replayFixtures');
+      const engine = new ExerciseEngine(exercise);
+      const duration = exercise === 'squat' ? 9000 : 4800;
+      let result;
+      for (let i = 0; i <= Math.round((duration * fps) / 1000); i++) {
+        const time = (i * 1000) / fps;
+        const points = fixturePose(time, exercise).map((p) => ({ ...p, x: p.x / aspect }));
+        result = engine.update(points, time, aspect);
+      }
+      expect(result!.quality).toBe(true);
+      expect(result!.reps).toBe(3);
+    },
+  );
+  it.each(['squat', 'jumping_jack'] as const)(
+    'long gap cancels $exercise then allows recovery',
+    async (exercise) => {
+      const { fixturePose } = await import('./replayFixtures');
+      const engine = new ExerciseEngine(exercise);
+      const duration = exercise === 'squat' ? 3000 : 1600;
+      for (let t = 0; t <= duration / 2; t += 50) engine.update(fixturePose(t, exercise), t);
+      // Both explicit invalid frames and the silent gap must discard the pending repetition.
+      engine.update([], duration / 2 + 50);
+      let result;
+      for (let t = duration; t <= duration * 2; t += 50)
+        result = engine.update(fixturePose(t, exercise), t);
+      expect(result!.reps).toBe(1);
+    },
+  );
+  it.each(['squat', 'jumping_jack'] as const)(
+    'small stationary jitter cannot count $exercise',
+    async (exercise) => {
+      const { fixturePose } = await import('./replayFixtures');
+      const engine = new ExerciseEngine(exercise);
+      let result;
+      for (let t = 0; t <= 10000; t += 50) {
+        const points = fixturePose(0, exercise).map((p, i) => ({
+          ...p,
+          x: p.x + Math.sin(t / 100 + i) * 0.001,
+          y: p.y + Math.cos(t / 100 + i) * 0.001,
+        }));
+        result = engine.update(points, t);
+      }
+      expect(result!.quality).toBe(true);
+      expect(result!.reps).toBe(0);
+    },
+  );
+});

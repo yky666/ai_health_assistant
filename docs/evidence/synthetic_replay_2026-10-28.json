@@ -1,0 +1,621 @@
+{
+  "algorithm_version": "localfit.pose.2026-10-28",
+  "evidence_scope": "landmark replay; not end-to-end pose model accuracy",
+  "groups": [
+    {
+      "evidence_kind": "synthetic",
+      "exercise": "squat",
+      "total_clips": 6,
+      "participants": 1,
+      "eligible_clips": 2,
+      "excluded_clips": 4,
+      "unlabelled_clips": 0,
+      "count_mae": 0,
+      "within_one_rate": 1,
+      "normal_false_rejection_rate": 0,
+      "invalid_false_acceptance_rate": 0
+    },
+    {
+      "evidence_kind": "synthetic",
+      "exercise": "jumping_jack",
+      "total_clips": 6,
+      "participants": 1,
+      "eligible_clips": 2,
+      "excluded_clips": 4,
+      "unlabelled_clips": 0,
+      "count_mae": 0,
+      "within_one_rate": 1,
+      "normal_false_rejection_rate": 0,
+      "invalid_false_acceptance_rate": 0
+    }
+  ],
+  "rows": [
+    {
+      "clip_id": "squat-normal",
+      "participant_id": "synthetic-fixture",
+      "scenario": "normal",
+      "exercise": "squat",
+      "evidence_kind": "synthetic",
+      "source": "simulation",
+      "count_eligible": true,
+      "exclusion_reason": "",
+      "reference_reps": 3,
+      "predicted_reps": 3,
+      "absolute_error": 0,
+      "annotated_quality_frames": 181,
+      "quality_confusion": {
+        "observed_as_observed": 181,
+        "observed_as_unknown": 0,
+        "unknown_as_observed": 0,
+        "unknown_as_unknown": 0
+      },
+      "activity_confusion": {},
+      "quality_reasons": {
+        "observed": 181
+      },
+      "classified_seconds": {
+        "work": 3.599999999999995,
+        "rest": 5.399999999999989,
+        "unknown": 0
+      },
+      "rep_events": [
+        {
+          "time_ms": 2550,
+          "reps": 1
+        },
+        {
+          "time_ms": 5550,
+          "reps": 2
+        },
+        {
+          "time_ms": 8550,
+          "reps": 3
+        }
+      ],
+      "rep_details": [
+        {
+          "number": 1,
+          "start_seconds": 0.7,
+          "bottom_seconds": 1.55,
+          "end_seconds": 2.55,
+          "descent_seconds": 0.85,
+          "ascent_seconds": 1,
+          "min_angle_degrees": 91,
+          "rom": "within_rule"
+        },
+        {
+          "number": 2,
+          "start_seconds": 3.7,
+          "bottom_seconds": 4.55,
+          "end_seconds": 5.55,
+          "descent_seconds": 0.85,
+          "ascent_seconds": 1,
+          "min_angle_degrees": 91,
+          "rom": "within_rule"
+        },
+        {
+          "number": 3,
+          "start_seconds": 6.7,
+          "bottom_seconds": 7.55,
+          "end_seconds": 8.55,
+          "descent_seconds": 0.85,
+          "ascent_seconds": 1,
+          "min_angle_degrees": 91,
+          "rom": "within_rule"
+        }
+      ],
+      "squat_cycle_comparison": {
+        "available": false,
+        "reference_cycles": 0,
+        "matched_cycles": 0,
+        "unmatched_reference_cycles": 0,
+        "unmatched_predicted_cycles": null,
+        "matching_tolerance_ms": 500,
+        "amplitude_confusion": {},
+        "descent_samples": 0,
+        "descent_mae_seconds": null,
+        "ascent_samples": 0,
+        "ascent_mae_seconds": null
+      }
+    },
+    {
+      "clip_id": "squat-stationary",
+      "participant_id": "synthetic-fixture",
+      "scenario": "stationary",
+      "exercise": "squat",
+      "evidence_kind": "synthetic",
+      "source": "simulation",
+      "count_eligible": true,
+      "exclusion_reason": "",
+      "reference_reps": 0,
+      "predicted_reps": 0,
+      "absolute_error": 0,
+      "annotated_quality_frames": 181,
+      "quality_confusion": {
+        "observed_as_observed": 181,
+        "observed_as_unknown": 0,
+        "unknown_as_observed": 0,
+        "unknown_as_unknown": 0
+      },
+      "activity_confusion": {},
+      "quality_reasons": {
+        "observed": 181
+      },
+      "classified_seconds": {
+        "work": 0,
+        "rest": 8.999999999999993,
+        "unknown": 0
+      },
+      "rep_events": [],
+      "rep_details": [],
+      "squat_cycle_comparison": {
+        "available": false,
+        "reference_cycles": 0,
+        "matched_cycles": 0,
+        "unmatched_reference_cycles": 0,
+        "unmatched_predicted_cycles": null,
+        "matching_tolerance_ms": 500,
+        "amplitude_confusion": {},
+        "descent_samples": 0,
+        "descent_mae_seconds": null,
+        "ascent_samples": 0,
+        "ascent_mae_seconds": null
+      }
+    },
+    {
+      "clip_id": "squat-occlusion",
+      "participant_id": "synthetic-fixture",
+      "scenario": "occlusion",
+      "exercise": "squat",
+      "evidence_kind": "synthetic",
+      "source": "simulation",
+      "count_eligible": false,
+      "exclusion_reason": "Deliberate invalid observation; evaluate gate and false counts.",
+      "reference_reps": 0,
+      "predicted_reps": 0,
+      "absolute_error": 0,
+      "annotated_quality_frames": 181,
+      "quality_confusion": {
+        "observed_as_observed": 0,
+        "observed_as_unknown": 0,
+        "unknown_as_observed": 0,
+        "unknown_as_unknown": 181
+      },
+      "activity_confusion": {},
+      "quality_reasons": {
+        "low_visibility": 181
+      },
+      "classified_seconds": {
+        "work": 0,
+        "rest": 0,
+        "unknown": 8.999999999999993
+      },
+      "rep_events": [],
+      "rep_details": [],
+      "squat_cycle_comparison": {
+        "available": false,
+        "reference_cycles": 0,
+        "matched_cycles": 0,
+        "unmatched_reference_cycles": 0,
+        "unmatched_predicted_cycles": null,
+        "matching_tolerance_ms": 500,
+        "amplitude_confusion": {},
+        "descent_samples": 0,
+        "descent_mae_seconds": null,
+        "ascent_samples": 0,
+        "ascent_mae_seconds": null
+      }
+    },
+    {
+      "clip_id": "squat-out_of_frame",
+      "participant_id": "synthetic-fixture",
+      "scenario": "out_of_frame",
+      "exercise": "squat",
+      "evidence_kind": "synthetic",
+      "source": "simulation",
+      "count_eligible": false,
+      "exclusion_reason": "Deliberate invalid observation; evaluate gate and false counts.",
+      "reference_reps": 0,
+      "predicted_reps": 0,
+      "absolute_error": 0,
+      "annotated_quality_frames": 181,
+      "quality_confusion": {
+        "observed_as_observed": 0,
+        "observed_as_unknown": 0,
+        "unknown_as_observed": 0,
+        "unknown_as_unknown": 181
+      },
+      "activity_confusion": {},
+      "quality_reasons": {
+        "out_of_frame": 181
+      },
+      "classified_seconds": {
+        "work": 0,
+        "rest": 0,
+        "unknown": 8.999999999999993
+      },
+      "rep_events": [],
+      "rep_details": [],
+      "squat_cycle_comparison": {
+        "available": false,
+        "reference_cycles": 0,
+        "matched_cycles": 0,
+        "unmatched_reference_cycles": 0,
+        "unmatched_predicted_cycles": null,
+        "matching_tolerance_ms": 500,
+        "amplitude_confusion": {},
+        "descent_samples": 0,
+        "descent_mae_seconds": null,
+        "ascent_samples": 0,
+        "ascent_mae_seconds": null
+      }
+    },
+    {
+      "clip_id": "squat-missing",
+      "participant_id": "synthetic-fixture",
+      "scenario": "missing",
+      "exercise": "squat",
+      "evidence_kind": "synthetic",
+      "source": "simulation",
+      "count_eligible": false,
+      "exclusion_reason": "Deliberate invalid observation; evaluate gate and false counts.",
+      "reference_reps": 0,
+      "predicted_reps": 0,
+      "absolute_error": 0,
+      "annotated_quality_frames": 181,
+      "quality_confusion": {
+        "observed_as_observed": 0,
+        "observed_as_unknown": 0,
+        "unknown_as_observed": 0,
+        "unknown_as_unknown": 181
+      },
+      "activity_confusion": {},
+      "quality_reasons": {
+        "missing_landmark": 181
+      },
+      "classified_seconds": {
+        "work": 0,
+        "rest": 0,
+        "unknown": 8.999999999999993
+      },
+      "rep_events": [],
+      "rep_details": [],
+      "squat_cycle_comparison": {
+        "available": false,
+        "reference_cycles": 0,
+        "matched_cycles": 0,
+        "unmatched_reference_cycles": 0,
+        "unmatched_predicted_cycles": null,
+        "matching_tolerance_ms": 500,
+        "amplitude_confusion": {},
+        "descent_samples": 0,
+        "descent_mae_seconds": null,
+        "ascent_samples": 0,
+        "ascent_mae_seconds": null
+      }
+    },
+    {
+      "clip_id": "squat-degenerate",
+      "participant_id": "synthetic-fixture",
+      "scenario": "degenerate",
+      "exercise": "squat",
+      "evidence_kind": "synthetic",
+      "source": "simulation",
+      "count_eligible": false,
+      "exclusion_reason": "Deliberate invalid observation; evaluate gate and false counts.",
+      "reference_reps": 0,
+      "predicted_reps": 0,
+      "absolute_error": 0,
+      "annotated_quality_frames": 181,
+      "quality_confusion": {
+        "observed_as_observed": 0,
+        "observed_as_unknown": 0,
+        "unknown_as_observed": 0,
+        "unknown_as_unknown": 181
+      },
+      "activity_confusion": {},
+      "quality_reasons": {
+        "degenerate_geometry": 181
+      },
+      "classified_seconds": {
+        "work": 0,
+        "rest": 0,
+        "unknown": 8.999999999999993
+      },
+      "rep_events": [],
+      "rep_details": [],
+      "squat_cycle_comparison": {
+        "available": false,
+        "reference_cycles": 0,
+        "matched_cycles": 0,
+        "unmatched_reference_cycles": 0,
+        "unmatched_predicted_cycles": null,
+        "matching_tolerance_ms": 500,
+        "amplitude_confusion": {},
+        "descent_samples": 0,
+        "descent_mae_seconds": null,
+        "ascent_samples": 0,
+        "ascent_mae_seconds": null
+      }
+    },
+    {
+      "clip_id": "jumping_jack-normal",
+      "participant_id": "synthetic-fixture",
+      "scenario": "normal",
+      "exercise": "jumping_jack",
+      "evidence_kind": "synthetic",
+      "source": "simulation",
+      "count_eligible": true,
+      "exclusion_reason": "",
+      "reference_reps": 3,
+      "predicted_reps": 3,
+      "absolute_error": 0,
+      "annotated_quality_frames": 97,
+      "quality_confusion": {
+        "observed_as_observed": 97,
+        "observed_as_unknown": 0,
+        "unknown_as_observed": 0,
+        "unknown_as_unknown": 0
+      },
+      "activity_confusion": {},
+      "quality_reasons": {
+        "observed": 97
+      },
+      "classified_seconds": {
+        "work": 2.6999999999999984,
+        "rest": 2.1000000000000005,
+        "unknown": 0
+      },
+      "rep_events": [
+        {
+          "time_ms": 1200,
+          "reps": 1
+        },
+        {
+          "time_ms": 2800,
+          "reps": 2
+        },
+        {
+          "time_ms": 4400,
+          "reps": 3
+        }
+      ],
+      "rep_details": [],
+      "squat_cycle_comparison": {
+        "available": false,
+        "reference_cycles": 0,
+        "matched_cycles": 0,
+        "unmatched_reference_cycles": 0,
+        "unmatched_predicted_cycles": null,
+        "matching_tolerance_ms": 500,
+        "amplitude_confusion": {},
+        "descent_samples": 0,
+        "descent_mae_seconds": null,
+        "ascent_samples": 0,
+        "ascent_mae_seconds": null
+      }
+    },
+    {
+      "clip_id": "jumping_jack-stationary",
+      "participant_id": "synthetic-fixture",
+      "scenario": "stationary",
+      "exercise": "jumping_jack",
+      "evidence_kind": "synthetic",
+      "source": "simulation",
+      "count_eligible": true,
+      "exclusion_reason": "",
+      "reference_reps": 0,
+      "predicted_reps": 0,
+      "absolute_error": 0,
+      "annotated_quality_frames": 97,
+      "quality_confusion": {
+        "observed_as_observed": 97,
+        "observed_as_unknown": 0,
+        "unknown_as_observed": 0,
+        "unknown_as_unknown": 0
+      },
+      "activity_confusion": {},
+      "quality_reasons": {
+        "observed": 97
+      },
+      "classified_seconds": {
+        "work": 0,
+        "rest": 4.799999999999991,
+        "unknown": 0
+      },
+      "rep_events": [],
+      "rep_details": [],
+      "squat_cycle_comparison": {
+        "available": false,
+        "reference_cycles": 0,
+        "matched_cycles": 0,
+        "unmatched_reference_cycles": 0,
+        "unmatched_predicted_cycles": null,
+        "matching_tolerance_ms": 500,
+        "amplitude_confusion": {},
+        "descent_samples": 0,
+        "descent_mae_seconds": null,
+        "ascent_samples": 0,
+        "ascent_mae_seconds": null
+      }
+    },
+    {
+      "clip_id": "jumping_jack-occlusion",
+      "participant_id": "synthetic-fixture",
+      "scenario": "occlusion",
+      "exercise": "jumping_jack",
+      "evidence_kind": "synthetic",
+      "source": "simulation",
+      "count_eligible": false,
+      "exclusion_reason": "Deliberate invalid observation; evaluate gate and false counts.",
+      "reference_reps": 0,
+      "predicted_reps": 0,
+      "absolute_error": 0,
+      "annotated_quality_frames": 97,
+      "quality_confusion": {
+        "observed_as_observed": 0,
+        "observed_as_unknown": 0,
+        "unknown_as_observed": 0,
+        "unknown_as_unknown": 97
+      },
+      "activity_confusion": {},
+      "quality_reasons": {
+        "low_visibility": 97
+      },
+      "classified_seconds": {
+        "work": 0,
+        "rest": 0,
+        "unknown": 4.799999999999991
+      },
+      "rep_events": [],
+      "rep_details": [],
+      "squat_cycle_comparison": {
+        "available": false,
+        "reference_cycles": 0,
+        "matched_cycles": 0,
+        "unmatched_reference_cycles": 0,
+        "unmatched_predicted_cycles": null,
+        "matching_tolerance_ms": 500,
+        "amplitude_confusion": {},
+        "descent_samples": 0,
+        "descent_mae_seconds": null,
+        "ascent_samples": 0,
+        "ascent_mae_seconds": null
+      }
+    },
+    {
+      "clip_id": "jumping_jack-out_of_frame",
+      "participant_id": "synthetic-fixture",
+      "scenario": "out_of_frame",
+      "exercise": "jumping_jack",
+      "evidence_kind": "synthetic",
+      "source": "simulation",
+      "count_eligible": false,
+      "exclusion_reason": "Deliberate invalid observation; evaluate gate and false counts.",
+      "reference_reps": 0,
+      "predicted_reps": 0,
+      "absolute_error": 0,
+      "annotated_quality_frames": 97,
+      "quality_confusion": {
+        "observed_as_observed": 0,
+        "observed_as_unknown": 0,
+        "unknown_as_observed": 0,
+        "unknown_as_unknown": 97
+      },
+      "activity_confusion": {},
+      "quality_reasons": {
+        "out_of_frame": 97
+      },
+      "classified_seconds": {
+        "work": 0,
+        "rest": 0,
+        "unknown": 4.799999999999991
+      },
+      "rep_events": [],
+      "rep_details": [],
+      "squat_cycle_comparison": {
+        "available": false,
+        "reference_cycles": 0,
+        "matched_cycles": 0,
+        "unmatched_reference_cycles": 0,
+        "unmatched_predicted_cycles": null,
+        "matching_tolerance_ms": 500,
+        "amplitude_confusion": {},
+        "descent_samples": 0,
+        "descent_mae_seconds": null,
+        "ascent_samples": 0,
+        "ascent_mae_seconds": null
+      }
+    },
+    {
+      "clip_id": "jumping_jack-missing",
+      "participant_id": "synthetic-fixture",
+      "scenario": "missing",
+      "exercise": "jumping_jack",
+      "evidence_kind": "synthetic",
+      "source": "simulation",
+      "count_eligible": false,
+      "exclusion_reason": "Deliberate invalid observation; evaluate gate and false counts.",
+      "reference_reps": 0,
+      "predicted_reps": 0,
+      "absolute_error": 0,
+      "annotated_quality_frames": 97,
+      "quality_confusion": {
+        "observed_as_observed": 0,
+        "observed_as_unknown": 0,
+        "unknown_as_observed": 0,
+        "unknown_as_unknown": 97
+      },
+      "activity_confusion": {},
+      "quality_reasons": {
+        "missing_landmark": 97
+      },
+      "classified_seconds": {
+        "work": 0,
+        "rest": 0,
+        "unknown": 4.799999999999991
+      },
+      "rep_events": [],
+      "rep_details": [],
+      "squat_cycle_comparison": {
+        "available": false,
+        "reference_cycles": 0,
+        "matched_cycles": 0,
+        "unmatched_reference_cycles": 0,
+        "unmatched_predicted_cycles": null,
+        "matching_tolerance_ms": 500,
+        "amplitude_confusion": {},
+        "descent_samples": 0,
+        "descent_mae_seconds": null,
+        "ascent_samples": 0,
+        "ascent_mae_seconds": null
+      }
+    },
+    {
+      "clip_id": "jumping_jack-degenerate",
+      "participant_id": "synthetic-fixture",
+      "scenario": "degenerate",
+      "exercise": "jumping_jack",
+      "evidence_kind": "synthetic",
+      "source": "simulation",
+      "count_eligible": false,
+      "exclusion_reason": "Deliberate invalid observation; evaluate gate and false counts.",
+      "reference_reps": 0,
+      "predicted_reps": 0,
+      "absolute_error": 0,
+      "annotated_quality_frames": 97,
+      "quality_confusion": {
+        "observed_as_observed": 0,
+        "observed_as_unknown": 0,
+        "unknown_as_observed": 0,
+        "unknown_as_unknown": 97
+      },
+      "activity_confusion": {},
+      "quality_reasons": {
+        "view_unreliable": 97
+      },
+      "classified_seconds": {
+        "work": 0,
+        "rest": 0,
+        "unknown": 4.799999999999991
+      },
+      "rep_events": [],
+      "rep_details": [],
+      "squat_cycle_comparison": {
+        "available": false,
+        "reference_cycles": 0,
+        "matched_cycles": 0,
+        "unmatched_reference_cycles": 0,
+        "unmatched_predicted_cycles": null,
+        "matching_tolerance_ms": 500,
+        "amplitude_confusion": {},
+        "descent_samples": 0,
+        "descent_mae_seconds": null,
+        "ascent_samples": 0,
+        "ascent_mae_seconds": null
+      }
+    }
+  ],
+  "input_sha256": "d946d95fe159d581b6da7c4a94ce6948be9a87cbad0887af49f76ada1e379c32",
+  "implementation_sha256": "a6e59dd374f42ce55821ed5bac50594965fdd7850c991ceb1e5c6fed7bb52ffb"
+}

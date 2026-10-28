@@ -1,0 +1,9 @@
+
+ RUN  v5.0.3 /mnt/data/open_atom_track1/ai_health_assistant/frontend
+
+
+ Test Files  3 passed (3)
+      Tests  61 passed (61)
+   Start at  10:18:29
+   Duration  194ms (transform 64%, tests 18%, import 15%, worker 3%)
+
