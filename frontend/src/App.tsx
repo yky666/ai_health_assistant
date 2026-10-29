@@ -66,7 +66,7 @@ const SAFETY_STATE_UNKNOWN_NOTICE =
 const SAFETY_STATE_CHECKING_NOTICE =
   '正在核对服务端会话状态：核对完成前不能开始训练、提交决定或生成报告。';
 const SAFETY_STORAGE_NOTICE =
-  '浏览器无法持久化安全状态（会话 ID / 安全锁存）：后端模式下本组保持不可开始或继续，刷新后也不会假定已恢复。请检查浏览器存储权限后刷新页面。';
+  '浏览器无法持久化安全状态（会话 ID / 安全锁存）：本组保持不可开始或继续，刷新后也不会假定已恢复。请检查浏览器存储权限后刷新页面。';
 const SAFETY_STORAGE_READ_NOTICE =
   '浏览器存储中的会话/安全状态无法可靠读取或已损坏：本组保持阻断。不会把它当作“没有活动会话”，也不会自动创建新会话；请修复浏览器存储或刷新后重新核对。';
 const SAFETY_SESSION_MISSING_NOTICE =
@@ -101,7 +101,11 @@ type RemoteDecision = {
 };
 type PoseStatus = 'initializing' | 'worker' | 'main-thread' | 'failed' | 'retrying';
 
-type StoredSession = { session_id: string };
+type StoredSession = {
+  session_id: string;
+  safety_latched?: boolean;
+  event_id?: string;
+};
 type StoredRead<T> =
   | { state: 'missing' }
   | { state: 'ok'; value: T }
@@ -111,6 +115,8 @@ type BootStorage = {
   active: StoredRead<StoredSession>;
   safety: StoredRead<StoredSafety>;
   sessionId: string | null;
+  safetyLatched: boolean;
+  eventId: string | null;
   invalid: boolean;
   notice: string;
 };
@@ -120,7 +126,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isStoredSession(value: unknown): value is StoredSession {
-  return isRecord(value) && typeof value.session_id === 'string' && value.session_id.trim() !== '';
+  if (
+    !isRecord(value) ||
+    typeof value.session_id !== 'string' ||
+    value.session_id.trim() === '' ||
+    (value.safety_latched !== undefined && typeof value.safety_latched !== 'boolean') ||
+    (value.event_id !== undefined && typeof value.event_id !== 'string')
+  )
+    return false;
+  return (
+    value.safety_latched !== true ||
+    (typeof value.event_id === 'string' && value.event_id.trim() !== '')
+  );
 }
 
 function isStoredSafety(value: unknown): value is StoredSafety {
@@ -192,22 +209,40 @@ function inspectBootStorage(): BootStorage {
   const healthy = probeSessionStorage();
   const active = readStored(ACTIVE_SESSION_KEY, isStoredSession);
   const safety = readStored(LOCAL_SAFETY_KEY, isStoredSafety);
-  const inconsistent =
+  const activeLatched = active.state === 'ok' && active.value.safety_latched === true;
+  const safetyLatched = safety.state === 'ok';
+  const inconsistentSession =
     active.state === 'ok' &&
     safety.state === 'ok' &&
     active.value.session_id !== safety.value.session_id;
-  const invalid = active.state === 'invalid' || safety.state === 'invalid' || inconsistent;
+  const inconsistentEvent =
+    activeLatched &&
+    safety.state === 'ok' &&
+    active.value.event_id !== safety.value.event_id;
+  const invalid =
+    active.state === 'invalid' ||
+    safety.state === 'invalid' ||
+    inconsistentSession ||
+    inconsistentEvent;
   const sessionId =
     active.state === 'ok'
       ? active.value.session_id
       : safety.state === 'ok'
         ? safety.value.session_id
         : null;
+  const eventId =
+    safety.state === 'ok'
+      ? safety.value.event_id
+      : activeLatched && active.state === 'ok'
+        ? active.value.event_id ?? null
+        : null;
   return {
     healthy,
     active,
     safety,
     sessionId,
+    safetyLatched: activeLatched || safetyLatched,
+    eventId,
     invalid,
     notice: invalid
       ? SAFETY_STORAGE_READ_NOTICE
@@ -218,6 +253,13 @@ function inspectBootStorage(): BootStorage {
 }
 
 export default function App() {
+  const [bootStorage] = useState<BootStorage>(inspectBootStorage);
+  const initialSafetyLatched =
+    bootStorage.healthy && !bootStorage.invalid && bootStorage.safetyLatched;
+  const initialSessionId =
+    bootStorage.healthy && !bootStorage.invalid ? bootStorage.sessionId : null;
+  const initialSafetyEventId =
+    bootStorage.healthy && !bootStorage.invalid ? bootStorage.eventId : null;
   const [tab, setTab] = useState('training');
   const [exercise, setExercise] = useState<Exercise>('squat');
   const [showExperimental, setShowExperimental] = useState(false);
@@ -245,8 +287,8 @@ export default function App() {
   const [target, setTarget] = useState(12);
   const [threshold, setThreshold] = useState(105);
   const [fatigue, setFatigue] = useState(4);
-  const [discomfort, setDiscomfort] = useState(false);
-  const [discomfortBlocked, setDiscomfortBlocked] = useState(false);
+  const [discomfort, setDiscomfort] = useState(initialSafetyLatched);
+  const [discomfortBlocked, setDiscomfortBlocked] = useState(initialSafetyLatched);
   const [persist, setPersist] = useState(false);
   const [captureLandmarks, setCaptureLandmarks] = useState(false);
   const recorder = useRef(new LandmarkRecorder());
@@ -321,14 +363,14 @@ export default function App() {
   const metricRef = useRef(emptyMetrics);
   const profileRef = useRef(defaultProfile());
   const showRawRef = useRef(true);
-  const discomfortBlockedRef = useRef(false);
+  const discomfortBlockedRef = useRef(initialSafetyLatched);
   const finishInFlightRef = useRef(false);
   const finishAbortRef = useRef<AbortController | null>(null);
   const decisionAbortRef = useRef<AbortController | null>(null);
   // FE-BE-01: a stable session id exists before any real action processing starts
   // and is shared by the safety event, analysis, explanation and decisions.
-  const sessionIdRef = useRef<string | null>(null);
-  const safetyEventIdRef = useRef<string | null>(null);
+  const sessionIdRef = useRef<string | null>(initialSafetyLatched ? initialSessionId : null);
+  const safetyEventIdRef = useRef<string | null>(initialSafetyLatched ? initialSafetyEventId : null);
   const stateUnknownRef = useRef(false);
   const [safetySync, setSafetySync] = useState<
     'idle' | 'syncing' | 'pending' | 'confirmed' | 'expired'
@@ -339,7 +381,6 @@ export default function App() {
   // - sessionChecking: a stored session exists and GET /state has not answered yet.
   // - storageFault: sessionStorage cannot reliably read/persist the session id / latch.
   // - sessionUninitialized: the backend answered 404 for the stored session id.
-  const [bootStorage] = useState<BootStorage>(inspectBootStorage);
   const [sessionChecking, setSessionChecking] = useState<boolean>(
     () =>
       runtimeMode === 'backend' &&
@@ -348,7 +389,7 @@ export default function App() {
       Boolean(bootStorage.sessionId),
   );
   const [storageFault, setStorageFault] = useState<boolean>(
-    () => runtimeMode === 'backend' && (!bootStorage.healthy || bootStorage.invalid),
+    () => !bootStorage.healthy || bootStorage.invalid,
   );
   const [storageFaultNotice, setStorageFaultNotice] = useState(bootStorage.notice);
   const [sessionUninitialized, setSessionUninitialized] = useState(false);
@@ -375,19 +416,59 @@ export default function App() {
   useEffect(() => {
     reportRef.current = report;
   }, [report]);
-  // FE-BE-01-R1: on backend-mode reload, restore the active session id and read
-  // the authoritative safety state. The page starts in an explicit checking state
-  // when any stored session/latch exists; nothing may overwrite server state until
-  // GET /state has answered. A local latch already recorded is kept, never cleared
-  // by an older server snapshot, and a latch key without the active-session key is
-  // still honoured instead of being silently ignored.
+  // Restore the active group and safety latch on same-tab reload in both runtimes.
   useEffect(() => {
+    const boot = bootStorage;
+    if (runtimeMode === 'browser') {
+      if (!boot.healthy || boot.invalid) {
+        storageFaultRef.current = true;
+        setStorageFault(true);
+        setStorageFaultNotice(boot.notice);
+        setError(boot.notice);
+        sessionCheckingRef.current = false;
+        setSessionChecking(false);
+        return;
+      }
+      if (boot.safetyLatched && boot.sessionId && boot.eventId) {
+        sessionIdRef.current = boot.sessionId;
+        safetyEventIdRef.current = boot.eventId;
+        discomfortBlockedRef.current = true;
+        setDiscomfort(true);
+        setDiscomfortBlocked(true);
+        if (
+          !writeStored(ACTIVE_SESSION_KEY, {
+            session_id: boot.sessionId,
+            safety_latched: true,
+            event_id: boot.eventId,
+          })
+        )
+          noteStorageFault();
+        if (
+          boot.safety.state !== 'ok' &&
+          !writeStored(LOCAL_SAFETY_KEY, {
+            session_id: boot.sessionId,
+            event_id: boot.eventId,
+            server_confirmed: false,
+            safety_version: null,
+          } satisfies StoredSafety)
+        )
+          noteStorageFault();
+      } else {
+        // A non-blocked group has no recoverable live metrics after a page reload.
+        // Retire its stale identity so the next start is a new group, not a replay.
+        sessionIdRef.current = null;
+        safetyEventIdRef.current = null;
+        if (boot.active.state === 'ok' && !removeStored(ACTIVE_SESSION_KEY)) noteStorageFault();
+      }
+      sessionCheckingRef.current = false;
+      setSessionChecking(false);
+      return;
+    }
     if (runtimeMode !== 'backend') {
       sessionCheckingRef.current = false;
       setSessionChecking(false);
       return;
     }
-    const boot = bootStorage;
     if (!boot.healthy || boot.invalid) {
       // An unreadable or corrupt active-session/latch key is not the same as an
       // empty store. Fail closed: never create a new session or query a guessed
@@ -1598,28 +1679,34 @@ export default function App() {
     // cleared.
     setExplanation('');
     setError('');
-    if (runtimeMode === 'backend') {
-      // A discomfort belongs to the current group. After a committed decision the
-      // group id comes from the report so the already-submitted decision is kept.
-      const targetSession = sessionIdRef.current ?? existingReport?.session_id ?? null;
-      const sessionId = targetSession ?? ensureSession();
-      if (sessionId && !sessionIdRef.current) {
-        sessionIdRef.current = sessionId;
-        if (!writeStored(ACTIVE_SESSION_KEY, { session_id: sessionId })) noteStorageFault();
+    const targetSession = sessionIdRef.current ?? existingReport?.session_id ?? null;
+    const sessionId = targetSession ?? ensureSession();
+    if (sessionId) {
+      sessionIdRef.current = sessionId;
+      const isNewSafetyEvent = !safetyEventIdRef.current;
+      const eventId = safetyEventIdRef.current ?? crypto.randomUUID();
+      safetyEventIdRef.current = eventId;
+      const activeSaved = writeStored(ACTIVE_SESSION_KEY, {
+        session_id: sessionId,
+        safety_latched: true,
+        event_id: eventId,
+      });
+      let safetySaved = true;
+      if (isNewSafetyEvent) {
+        safetySaved = writeStored(
+          LOCAL_SAFETY_KEY,
+          {
+            session_id: sessionId,
+            event_id: eventId,
+            server_confirmed: false,
+            safety_version: runtimeMode === 'backend' ? safetyVersion : null,
+          } satisfies StoredSafety,
+        );
       }
-      if (sessionId) {
-        if (!safetyEventIdRef.current) {
-          safetyEventIdRef.current = crypto.randomUUID();
-          if (
-            !writeStored(LOCAL_SAFETY_KEY, {
-              session_id: sessionId,
-              event_id: safetyEventIdRef.current,
-              server_confirmed: false,
-              safety_version: safetyVersion,
-            } satisfies StoredSafety)
-          )
-            noteStorageFault();
-        }
+      if (!activeSaved || !safetySaved) noteStorageFault();
+      if (runtimeMode === 'backend') {
+        // A discomfort belongs to the current group. After a committed decision the
+        // group id comes from the report so the already-submitted decision is kept.
         const report = existingReport;
         if (report && report.proposal.status === 'pending') {
           setAnalysisRecovery({
@@ -1635,7 +1722,7 @@ export default function App() {
             );
           }
         }
-        void syncSafetyEvent(safetyEventIdRef.current);
+        void syncSafetyEvent(eventId);
       }
     }
   }

@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import App from './App';
+import App, { ACTIVE_SESSION_KEY, LOCAL_SAFETY_KEY } from './App';
 import { clearHistory, latestReport, loadHistory } from './localCoach';
 
 const apiMock = vi.hoisted(() => ({
@@ -181,6 +181,8 @@ beforeEach(() => {
     value: { getUserMedia: mediaMock.getUserMedia },
   });
   clearHistory();
+  sessionStorage.removeItem(ACTIVE_SESSION_KEY);
+  sessionStorage.removeItem(LOCAL_SAFETY_KEY);
 });
 
 afterEach(async () => {
@@ -500,6 +502,58 @@ describe('discomfort safety latch', () => {
     expect(loadHistory()[0].proposal.status).toBe('accepted');
     expect(container.textContent).toContain('此前已提交的计划决定仍保留');
     expect(findButton('本次训练已结束').disabled).toBe(true);
+  });
+
+  it('restores the browser-mode discomfort latch after a page reload', async () => {
+    await renderApp();
+    await clickButton(findButton('开始 / 继续'));
+    await toggleCheckbox(discomfortInput());
+
+    const storedSafety = JSON.parse(sessionStorage.getItem(LOCAL_SAFETY_KEY) ?? 'null');
+    const storedSession = JSON.parse(sessionStorage.getItem(ACTIVE_SESSION_KEY) ?? 'null');
+    expect(storedSafety).toMatchObject({
+      session_id: expect.any(String),
+      event_id: expect.any(String),
+      server_confirmed: false,
+      safety_version: null,
+    });
+    expect(storedSession).toMatchObject({
+      session_id: storedSafety.session_id,
+      safety_latched: true,
+      event_id: storedSafety.event_id,
+    });
+
+    await act(async () => {
+      root!.unmount();
+    });
+    root = null;
+    container.remove();
+    await renderApp();
+
+    expect(discomfortInput().checked).toBe(true);
+    expect(container.textContent).toContain('本次训练已因不适停止');
+    expect(findButton('本次训练已停止').disabled).toBe(true);
+
+    await toggleCheckbox(discomfortInput());
+    expect(discomfortInput().checked).toBe(false);
+    expect(findButton('本次训练已停止').disabled).toBe(true);
+    expect(container.textContent).toContain('本次训练已因不适停止');
+  });
+
+  it('fails closed when browser safety storage is corrupt', async () => {
+    sessionStorage.setItem(LOCAL_SAFETY_KEY, '{invalid-json');
+    await renderApp();
+
+    expect(container.textContent).toContain(
+      '浏览器存储中的会话/安全状态无法可靠读取或已损坏',
+    );
+    await forceClick(findButton('开始 / 继续'));
+    expect(
+      [...container.querySelectorAll('button')].some((button) =>
+        button.textContent?.includes('暂停'),
+      ),
+    ).toBe(false);
+    expect(container.textContent).toContain('本组保持阻断');
   });
 
   it('browser mode never calls the backend safety endpoints and keeps the local latch', async () => {
