@@ -129,13 +129,17 @@ function isTraceEntry(value: unknown): boolean {
     isNonEmptyString(value.runtime) &&
     isNonEmptyString(value.decision) &&
     isRecord(value.evidence) &&
-    isNonEmptyString(value.timestamp) &&
+    isTimestamp(value.timestamp) &&
     (value.pre_latch === undefined || typeof value.pre_latch === 'boolean') &&
     (value.historical === undefined || typeof value.historical === 'boolean')
   );
 }
 
-function isProposal(value: unknown, safetyLatched: unknown): boolean {
+function isProposal(
+  value: unknown,
+  safetyLatched: unknown,
+  allowLegacyMissingDecisionTimestamp = false,
+): boolean {
   if (!isRecord(value)) return false;
   const status = value.status;
   if (
@@ -156,7 +160,11 @@ function isProposal(value: unknown, safetyLatched: unknown): boolean {
   } else {
     // A missing timestamp is tolerated for legacy decided records; a present
     // timestamp must be a real ISO timestamp, and null is not a decision time.
-    if (decidedAt !== undefined && !isTimestamp(decidedAt)) return false;
+    if (decidedAt === undefined) {
+      if (!allowLegacyMissingDecisionTimestamp) return false;
+    } else if (!isTimestamp(decidedAt)) {
+      return false;
+    }
     // Only an authoritative latched safety view may block a prior decision.
     if (value.blocked && safetyLatched !== true) return false;
   }
@@ -306,6 +314,8 @@ function isStoredReport(value: unknown): value is Report {
   )
     return false;
   if (value.policy_version !== undefined && !isNonEmptyString(value.policy_version)) return false;
+  const legacyWithoutVersionMetadata =
+    value.schema_version === undefined && value.policy_version === undefined;
   if (
     !isNonEmptyString(value.session_id) ||
     !isFiniteInteger(value.input_version) ||
@@ -319,13 +329,11 @@ function isStoredReport(value: unknown): value is Report {
     value.completion > 1 ||
     typeof value.saved !== 'boolean' ||
     !isEnergy(value.energy) ||
-    !isProposal(value.proposal, value.safety_latched)
+    !isProposal(value.proposal, value.safety_latched, legacyWithoutVersionMetadata)
   )
     return false;
 
   const trace = value.trace;
-  const legacyWithoutVersionMetadata =
-    value.schema_version === undefined && value.policy_version === undefined;
   if (
     !Array.isArray(trace) ||
     (trace.length === 0 && !legacyWithoutVersionMetadata) ||
