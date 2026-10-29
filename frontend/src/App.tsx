@@ -3059,8 +3059,8 @@ export default function App() {
                       我同意在本页内存记录关键点，用于本次算法评测
                     </label>
                     <p className="muted">
-                      仅含坐标与训练时间，不含影像；手动导出后交标注人员。重置本组或关闭页面会清空，最多
-                      20,000 帧。
+                      如需采集本组数据，请在开始训练前完成授权；训练开始后不能补开本组采集。仅记录坐标与训练时间，不含影像。
+                      手动导出后交标注人员；重置本组或关闭页面会清空，最多 20,000 帧。
                     </p>
                     {recorder.current.truncated && (
                       <p role="alert">
@@ -3363,7 +3363,7 @@ export default function App() {
                   {report.source === 'simulation'
                     ? '本次为模拟记录。'
                     : report.source === 'video'
-                      ? '本次来自上传视频重定向。'
+                      ? '本次数据来自上传视频。'
                       : '本次来自摄像头记录。'}
                   {report.energy.note}{' '}
                   {report.energy.daily
