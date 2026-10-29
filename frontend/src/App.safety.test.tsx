@@ -547,7 +547,7 @@ describe('discomfort safety latch', () => {
     expect(container.textContent).toContain(
       '浏览器存储中的会话/安全状态无法可靠读取或已损坏',
     );
-    await forceClick(findButton('开始 / 继续'));
+    await forceClick(findButton('存储不可用'));
     expect(
       [...container.querySelectorAll('button')].some((button) =>
         button.textContent?.includes('暂停'),
