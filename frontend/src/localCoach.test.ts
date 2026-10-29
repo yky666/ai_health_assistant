@@ -389,8 +389,16 @@ describe('local persistence commits', () => {
         value.safety_version = -1;
       }],
       ['fractional safety version', (value) => {
+        const proposal = value.proposal as Record<string, unknown>;
+        proposal.status = 'blocked';
+        proposal.blocked = true;
+        proposal.decided_at = null;
         value.safety_latched = true;
         value.safety_version = 0.5;
+      }],
+      ['safety version disagrees with latch', (value) => {
+        value.safety_latched = false;
+        value.safety_version = 1;
       }],
       ['schema_version wrong type', (value) => (value.schema_version = 1)],
       ['policy_version wrong type', (value) => (value.policy_version = false)],
