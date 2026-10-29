@@ -695,6 +695,7 @@ describe('history export', () => {
     await renderApp();
     await clickButton(findButton('训练复盘'));
     await clickButton(findButton('读取已保存记录'));
+    expect(container.textContent).toContain('已读取 2 条本机历史记录');
     await clickButton(findButton('导出历史 JSON'));
 
     expect(createObjectURL).toHaveBeenCalledOnce();
@@ -724,10 +725,34 @@ describe('history export', () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
     await renderApp();
     await clickButton(findButton('训练复盘'));
+    await clickButton(findButton('读取已保存记录'));
+    expect(container.textContent).toContain('已读取本机历史：暂无已保存记录');
     expect(findButton('导出历史 JSON').disabled).toBe(true);
-    expect(container.textContent).toContain('历史尚未加载或为空');
     expect(createObjectURL).not.toHaveBeenCalled();
     expect(click).not.toHaveBeenCalled();
+  });
+
+  it('shows a clear error when saved history cannot be read', async () => {
+    sessionStorage.setItem('localfit-browser-history', '{invalid-json');
+    await renderApp();
+    await clickButton(findButton('训练复盘'));
+    await clickButton(findButton('读取已保存记录'));
+    expect(container.textContent).toContain('读取已保存记录失败');
+    expect(sessionStorage.getItem('localfit-browser-history')).toBe('{invalid-json');
+  });
+
+  it('labels an unsaved report and distinguishes JSON export from history save', async () => {
+    await renderApp();
+    await clickButton(findButton('开始 / 继续'));
+    await clickButton(findButton('结束本组并复盘'));
+    await clickButton(findButton('训练复盘'));
+    expect(container.textContent).toContain('saved=false');
+    expect(container.textContent).toContain('JSON 导出不会写入历史');
+    expect(latestReport()?.saved).toBe(false);
+    expect(latestReport()?.proposal.status).toBe('pending');
+    expect(loadHistory()).toEqual([]);
+    await clickButton(findButton('读取已保存记录'));
+    expect(container.textContent).toContain('当前报告 saved=false');
   });
 
   it('shows a clear error when history export cannot create a file', async () => {

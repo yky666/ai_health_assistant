@@ -295,6 +295,11 @@ export default function App() {
   const recorder = useRef(new LandmarkRecorder());
   const [report, setReport] = useState<Report | null>(null);
   const [history, setHistory] = useState<Report[]>([]);
+  const [historyStatus, setHistoryStatus] = useState<{
+    kind: 'info' | 'error';
+    text: string;
+  } | null>(null);
+  const [historyBusy, setHistoryBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [apiReady, setApiReady] = useState(false);
@@ -2366,10 +2371,27 @@ export default function App() {
     return true;
   }
   async function loadSavedHistory() {
+    if (historyBusy) return;
+    setHistoryBusy(true);
+    setHistoryStatus(null);
     try {
-      setHistory(await request<Report[]>('/history'));
+      const items = await request<Report[]>('/history');
+      setHistory(items);
+      if (items.length === 0) {
+        setHistoryStatus({
+          kind: 'info',
+          text:
+            report?.saved === false
+              ? '已读取本机历史：暂无已保存记录。当前报告 saved=false，JSON 导出不会写入历史。'
+              : '已读取本机历史：暂无已保存记录。',
+        });
+      } else {
+        setHistoryStatus({ kind: 'info', text: `已读取 ${items.length} 条本机历史记录。` });
+      }
     } catch (e) {
-      setError(String(e));
+      setHistoryStatus({ kind: 'error', text: `读取已保存记录失败：${String(e)}` });
+    } finally {
+      setHistoryBusy(false);
     }
   }
   function exportReport() {
@@ -3350,7 +3372,9 @@ export default function App() {
                   {report.energy.net_low_kcal != null
                     ? `本组净消耗 ${report.energy.net_low_kcal}–${report.energy.net_high_kcal} kcal。 `
                     : ''}
-                  {report.saved ? '摘要已保存至本机。' : '摘要仅暂存在当前会话。'}
+                  {report.saved
+                    ? '摘要已保存至本机。'
+                    : '摘要未写入本机历史（saved=false）。JSON 导出不会写入历史；请在结束本组前勾选“同意在本机保存本次摘要”。'}
                 </p>
                 {!!report.rep_details?.length && (
                   <section className="panel">
@@ -3513,11 +3537,12 @@ export default function App() {
               <div className="inline-actions">
                 <button
                   className="secondary"
+                  disabled={historyBusy}
                   onClick={() => {
                     void loadSavedHistory();
                   }}
                 >
-                  读取已保存记录
+                  {historyBusy ? '读取中…' : '读取已保存记录'}
                 </button>
                 <button
                   className="secondary danger"
@@ -3571,10 +3596,19 @@ export default function App() {
               <p className="muted">
                 历史是存档快照，不代表当前可执行计划；当前会话请以复盘页的实时报告和安全状态为准。
               </p>
-              {!history.length && (
-                <p role="status" className="muted">
-                  历史尚未加载或为空：请先完成并保存训练，再点击“读取已保存记录”。历史导出与当前报告导出是不同操作。
+              {historyStatus ? (
+                <p
+                  role={historyStatus.kind === 'error' ? 'alert' : 'status'}
+                  className={historyStatus.kind === 'error' ? 'alert' : 'muted'}
+                >
+                  {historyStatus.text}
                 </p>
+              ) : (
+                !history.length && (
+                  <p role="status" className="muted">
+                    历史尚未加载或为空：请先完成并保存训练，再点击“读取已保存记录”。历史导出与当前报告导出是不同操作。
+                  </p>
+                )
               )}
               {history.map((r) => (
                 <div className="history-row" key={r.session_id}>
