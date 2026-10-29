@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import App from './App';
+import App, { ACTIVE_SESSION_KEY, LOCAL_SAFETY_KEY } from './App';
 import { clearHistory, latestReport, loadHistory } from './localCoach';
 
 const apiMock = vi.hoisted(() => ({
@@ -181,6 +181,8 @@ beforeEach(() => {
     value: { getUserMedia: mediaMock.getUserMedia },
   });
   clearHistory();
+  sessionStorage.removeItem(ACTIVE_SESSION_KEY);
+  sessionStorage.removeItem(LOCAL_SAFETY_KEY);
 });
 
 afterEach(async () => {
@@ -502,6 +504,123 @@ describe('discomfort safety latch', () => {
     expect(findButton('本次训练已结束').disabled).toBe(true);
   });
 
+  it('restores the browser-mode latch after reload without inventing an empty report', async () => {
+    await renderApp();
+    await clickButton(findButton('开始 / 继续'));
+    await toggleCheckbox(discomfortInput());
+
+    const storedSafety = JSON.parse(sessionStorage.getItem(LOCAL_SAFETY_KEY) ?? 'null');
+    const storedSession = JSON.parse(sessionStorage.getItem(ACTIVE_SESSION_KEY) ?? 'null');
+    expect(storedSafety).toMatchObject({
+      session_id: expect.any(String),
+      event_id: expect.any(String),
+      server_confirmed: false,
+      safety_version: null,
+    });
+    expect(storedSession).toMatchObject({
+      session_id: storedSafety.session_id,
+      safety_latched: true,
+      event_id: storedSafety.event_id,
+    });
+
+    await act(async () => {
+      root!.unmount();
+    });
+    root = null;
+    container.remove();
+    await renderApp();
+
+    expect(discomfortInput().checked).toBe(true);
+    expect(container.textContent).toContain('本次训练已因不适停止');
+    expect(container.textContent).toContain('不会用空数据生成报告');
+    expect(container.textContent).toContain('00:00');
+    expect(container.textContent).toContain('0/ 12');
+    expect((container.querySelector('video') as HTMLVideoElement | null)?.srcObject ?? null).toBeNull();
+    expect(findButton('本次训练已停止').disabled).toBe(true);
+    expect(findButton('本组数据未恢复').disabled).toBe(true);
+    expect(latestReport()).toBeNull();
+
+    await forceClick(findButtonByAria('重置本组'));
+    expect(container.textContent).toContain('不能通过重置恢复本组');
+    await forceClick(findButton('真实摄像头'));
+    expect(container.textContent).toContain('不能通过切换输入源恢复本组');
+
+    await forceClick(findButton('本组数据未恢复'));
+    expect(latestReport()).toBeNull();
+    expect(container.textContent).toContain('不能用空数据生成报告');
+
+    await toggleCheckbox(discomfortInput());
+    expect(discomfortInput().checked).toBe(false);
+    expect(findButton('本次训练已停止').disabled).toBe(true);
+    expect(container.textContent).toContain('本次训练已因不适停止');
+  });
+
+  it('offers read-only saved history after recovering a latched group', async () => {
+    await renderApp();
+    await clickButton(findButton('开始 / 继续'));
+    await toggleCheckbox(discomfortInput());
+
+    const savedRecord = {
+      session_id: 'saved-before-reload',
+      input_version: 1,
+      source: 'simulation',
+      coverage: 0.5,
+      completion: 0.5,
+      saved: true,
+      rep_details: [],
+      energy: { low_kcal: 1, high_kcal: 2, note: '历史摘要' },
+      proposal: {
+        target_reps: 12,
+        rest_seconds: 60,
+        reason: '历史建议',
+        blocked: false,
+        status: 'pending',
+      },
+      trace: [
+        {
+          role: 'reporter',
+          runtime: 'browser',
+          decision: '历史摘要',
+          evidence: {},
+          timestamp: '2026-01-01T00:00:00+00:00',
+        },
+      ],
+    };
+    sessionStorage.setItem('localfit-browser-history', JSON.stringify([savedRecord]));
+
+    await act(async () => {
+      root!.unmount();
+    });
+    root = null;
+    container.remove();
+    await renderApp();
+
+    const viewHistory = findButton('查看已保存历史');
+    expect(viewHistory).toBeTruthy();
+    await clickButton(viewHistory);
+    expect(container.textContent).toContain('saved-be');
+    expect(findButton('本次训练已停止').disabled).toBe(true);
+    expect(findButton('本组数据未恢复').disabled).toBe(true);
+    expect(latestReport()).toBeNull();
+    expect(loadHistory()).toHaveLength(1);
+  });
+
+  it('fails closed when browser safety storage is corrupt', async () => {
+    sessionStorage.setItem(LOCAL_SAFETY_KEY, '{invalid-json');
+    await renderApp();
+
+    expect(container.textContent).toContain(
+      '浏览器存储中的会话/安全状态无法可靠读取或已损坏',
+    );
+    await forceClick(findButton('存储不可用'));
+    expect(
+      [...container.querySelectorAll('button')].some((button) =>
+        button.textContent?.includes('暂停'),
+      ),
+    ).toBe(false);
+    expect(container.textContent).toContain('本组保持阻断');
+  });
+
   it('browser mode never calls the backend safety endpoints and keeps the local latch', async () => {
     const network = vi.fn();
     vi.stubGlobal('fetch', network);
@@ -576,6 +695,7 @@ describe('history export', () => {
     await renderApp();
     await clickButton(findButton('训练复盘'));
     await clickButton(findButton('读取已保存记录'));
+    expect(container.textContent).toContain('已读取 2 条本机历史记录');
     await clickButton(findButton('导出历史 JSON'));
 
     expect(createObjectURL).toHaveBeenCalledOnce();
@@ -605,10 +725,34 @@ describe('history export', () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
     await renderApp();
     await clickButton(findButton('训练复盘'));
+    await clickButton(findButton('读取已保存记录'));
+    expect(container.textContent).toContain('已读取本机历史：暂无已保存记录');
     expect(findButton('导出历史 JSON').disabled).toBe(true);
-    expect(container.textContent).toContain('历史尚未加载或为空');
     expect(createObjectURL).not.toHaveBeenCalled();
     expect(click).not.toHaveBeenCalled();
+  });
+
+  it('shows a clear error when saved history cannot be read', async () => {
+    sessionStorage.setItem('localfit-browser-history', '{invalid-json');
+    await renderApp();
+    await clickButton(findButton('训练复盘'));
+    await clickButton(findButton('读取已保存记录'));
+    expect(container.textContent).toContain('读取已保存记录失败');
+    expect(sessionStorage.getItem('localfit-browser-history')).toBe('{invalid-json');
+  });
+
+  it('labels an unsaved report and distinguishes JSON export from history save', async () => {
+    await renderApp();
+    await clickButton(findButton('开始 / 继续'));
+    await clickButton(findButton('结束本组并复盘'));
+    await clickButton(findButton('训练复盘'));
+    expect(container.textContent).toContain('saved=false');
+    expect(container.textContent).toContain('JSON 导出不会写入历史');
+    expect(latestReport()?.saved).toBe(false);
+    expect(latestReport()?.proposal.status).toBe('pending');
+    expect(loadHistory()).toEqual([]);
+    await clickButton(findButton('读取已保存记录'));
+    expect(container.textContent).toContain('当前报告 saved=false');
   });
 
   it('shows a clear error when history export cannot create a file', async () => {
