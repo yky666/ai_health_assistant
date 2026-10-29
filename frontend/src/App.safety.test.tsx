@@ -504,7 +504,7 @@ describe('discomfort safety latch', () => {
     expect(findButton('本次训练已结束').disabled).toBe(true);
   });
 
-  it('restores the browser-mode discomfort latch after a page reload', async () => {
+  it('restores the browser-mode latch after reload without inventing an empty report', async () => {
     await renderApp();
     await clickButton(findButton('开始 / 继续'));
     await toggleCheckbox(discomfortInput());
@@ -532,7 +532,13 @@ describe('discomfort safety latch', () => {
 
     expect(discomfortInput().checked).toBe(true);
     expect(container.textContent).toContain('本次训练已因不适停止');
+    expect(container.textContent).toContain('不会用空数据生成报告');
     expect(findButton('本次训练已停止').disabled).toBe(true);
+    expect(findButton('本组数据未恢复').disabled).toBe(true);
+
+    await forceClick(findButton('本组数据未恢复'));
+    expect(latestReport()).toBeNull();
+    expect(container.textContent).toContain('不能用空数据生成报告');
 
     await toggleCheckbox(discomfortInput());
     expect(discomfortInput().checked).toBe(false);
