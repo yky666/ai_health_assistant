@@ -333,6 +333,10 @@ describe('local persistence commits', () => {
         value.proposal = { ...(value.proposal as Record<string, unknown>), target_reps: '12' };
       }],
       ['trace entry incomplete', (value) => (value.trace = [{}])],
+      ['trace timestamp malformed', (value) => {
+        const trace = value.trace as Array<Record<string, unknown>>;
+        trace[0].timestamp = 'not-a-date';
+      }],
       ['trace empty', (value) => (value.trace = [])],
       ['proposal status invalid', (value) => {
         (value.proposal as Record<string, unknown>).status = 'unknown';
@@ -361,6 +365,12 @@ describe('local persistence commits', () => {
         proposal.status = 'accepted';
         proposal.blocked = false;
         proposal.decided_at = 'not-a-date';
+      }],
+      ['versioned accepted proposal missing decision timestamp', (value) => {
+        const proposal = value.proposal as Record<string, unknown>;
+        proposal.status = 'accepted';
+        proposal.blocked = false;
+        delete proposal.decided_at;
       }],
       ['accepted proposal has invalid calendar date', (value) => {
         const proposal = value.proposal as Record<string, unknown>;
@@ -680,6 +690,14 @@ describe('local persistence commits', () => {
     sessionStorage.setItem(historyKey, JSON.stringify([legacy]));
     expect(loadHistory()).toHaveLength(1);
     expect(loadHistory()[0].session_id).toBe('legacy-history');
+
+    const legacyDecided = {
+      ...legacy,
+      session_id: 'legacy-decided-no-timestamp',
+      proposal: { ...legacy.proposal, status: 'accepted', blocked: false },
+    };
+    sessionStorage.setItem(historyKey, JSON.stringify([legacyDecided]));
+    expect(loadHistory()[0].proposal.status).toBe('accepted');
 
     // The previous loader allowed empty trace arrays. Keep that compatibility
     // only for unversioned legacy records with no untraceable rep details.
