@@ -63,7 +63,7 @@ function isFiniteInteger(value: unknown): value is number {
 function isTimestamp(value: unknown): value is string {
   if (!isNonEmptyString(value)) return false;
   const match = value.match(
-    /^(\\d{4})-(\\d{2})-(\\d{2})T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$/,
+    /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/,
   );
   if (!match || !Number.isFinite(Date.parse(value))) return false;
   const year = Number(match[1]);
