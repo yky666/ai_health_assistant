@@ -260,6 +260,7 @@ export default function App() {
     bootStorage.healthy && !bootStorage.invalid ? bootStorage.sessionId : null;
   const initialSafetyEventId =
     bootStorage.healthy && !bootStorage.invalid ? bootStorage.eventId : null;
+  const browserLatchRecovered = runtimeMode === 'browser' && initialSafetyLatched;
   const [tab, setTab] = useState('training');
   const [exercise, setExercise] = useState<Exercise>('squat');
   const [showExperimental, setShowExperimental] = useState(false);
@@ -2033,6 +2034,12 @@ export default function App() {
   }
   async function finish() {
     if (finishInFlightRef.current) return;
+    if (browserLatchRecovered && !report) {
+      setError(
+        '刷新后已恢复本组安全阻断，但实时计数、计时和画面不会恢复；不能用空数据生成报告。请查看已保存历史。',
+      );
+      return;
+    }
     if (
       report &&
       (report.proposal.blocked ||
@@ -2517,7 +2524,9 @@ export default function App() {
               ? '阻断报告已生成，不能确认或应用下一组建议。'
               : report?.proposal.status === 'accepted' || report?.proposal.status === 'rejected'
                 ? '此前已提交的计划决定仍保留在复盘记录中，但不会继续训练。'
-                : SAFETY_STOP_NOTICE}
+                : browserLatchRecovered && !report
+                  ? '刷新后安全阻断已恢复，但本组计数、计时和实时画面不会恢复。不会用空数据生成报告；请查看已保存历史。'
+                  : SAFETY_STOP_NOTICE}
             {runtimeMode === 'backend' && (
               <div className="safety-sync">
                 {safetySync === 'syncing' && <p role="status">正在向服务端同步本次不适事件…</p>}
@@ -2972,6 +2981,7 @@ export default function App() {
                 disabled={
                   busy ||
                   reportFinished ||
+                  (browserLatchRecovered && !report) ||
                   sessionChecking ||
                   storageFault ||
                   sessionUninitialized ||
@@ -2983,7 +2993,9 @@ export default function App() {
                   ? '生成报告中…'
                   : reportFinished
                     ? '本次训练已结束'
-                    : sessionChecking
+                    : browserLatchRecovered && !report
+                      ? '本组数据未恢复'
+                      : sessionChecking
                       ? '正在核对状态…'
                       : '结束本组并复盘'}
                 <ArrowRight size={17} />
