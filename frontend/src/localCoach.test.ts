@@ -314,6 +314,391 @@ describe('local persistence commits', () => {
     expect(latestReport()).toEqual(old);
   });
 
+  it('rejects incomplete Report shapes instead of returning them', () => {
+    const current = analyzeLocal({ ...base, persist: true });
+    const raw = sessionStorage.getItem(historyKey);
+    if (!raw) throw new Error('expected a persisted report');
+    const record = JSON.parse(raw)[0] as Record<string, unknown>;
+    const invalidVariants: Array<[string, (value: Record<string, unknown>) => void]> = [
+      ['session_id empty', (value) => (value.session_id = '')],
+      ['input_version wrong type', (value) => (value.input_version = '1')],
+      ['source invalid', (value) => (value.source = 'webcam')],
+      ['coverage wrong type', (value) => (value.coverage = '0.5')],
+      ['completion wrong type', (value) => (value.completion = '0.5')],
+      ['saved wrong type', (value) => (value.saved = 'true')],
+      ['rep detail incomplete', (value) => (value.rep_details = [{}])],
+      ['energy incomplete', (value) => (value.energy = {})],
+      ['proposal empty', (value) => (value.proposal = {})],
+      ['proposal target wrong type', (value) => {
+        value.proposal = { ...(value.proposal as Record<string, unknown>), target_reps: '12' };
+      }],
+      ['trace entry incomplete', (value) => (value.trace = [{}])],
+      ['trace empty', (value) => (value.trace = [])],
+      ['proposal status invalid', (value) => {
+        (value.proposal as Record<string, unknown>).status = 'unknown';
+      }],
+      ['pending proposal marked blocked', (value) => {
+        (value.proposal as Record<string, unknown>).blocked = true;
+      }],
+      ['proposal blocked wrong type', (value) => {
+        (value.proposal as Record<string, unknown>).blocked = 'false';
+      }],
+      ['blocked proposal marked unblocked', (value) => {
+        (value.proposal as Record<string, unknown>).status = 'blocked';
+        (value.proposal as Record<string, unknown>).blocked = false;
+      }],
+      ['pending proposal has decision timestamp', (value) => {
+        (value.proposal as Record<string, unknown>).decided_at = '2026-01-01T00:00:00Z';
+      }],
+      ['accepted proposal has null decision timestamp', (value) => {
+        const proposal = value.proposal as Record<string, unknown>;
+        proposal.status = 'accepted';
+        proposal.blocked = false;
+        proposal.decided_at = null;
+      }],
+      ['accepted proposal has malformed decision timestamp', (value) => {
+        const proposal = value.proposal as Record<string, unknown>;
+        proposal.status = 'accepted';
+        proposal.blocked = false;
+        proposal.decided_at = 'not-a-date';
+      }],
+      ['accepted proposal has invalid calendar date', (value) => {
+        const proposal = value.proposal as Record<string, unknown>;
+        proposal.status = 'accepted';
+        proposal.blocked = false;
+        proposal.decided_at = '2026-02-30T00:00:00Z';
+      }],
+      ['accepted blocked proposal lacks latch metadata', (value) => {
+        const proposal = value.proposal as Record<string, unknown>;
+        proposal.status = 'accepted';
+        proposal.blocked = true;
+        proposal.decided_at = '2026-01-01T00:00:00Z';
+        delete value.safety_latched;
+        delete value.safety_version;
+      }],
+      ['latched accepted proposal is unblocked', (value) => {
+        const proposal = value.proposal as Record<string, unknown>;
+        proposal.status = 'accepted';
+        proposal.blocked = false;
+        proposal.decided_at = '2026-01-01T00:00:00Z';
+        value.safety_latched = true;
+        value.safety_version = 1;
+      }],
+      ['negative safety version', (value) => {
+        value.safety_latched = false;
+        value.safety_version = -1;
+      }],
+      ['fractional safety version', (value) => {
+        value.safety_latched = true;
+        value.safety_version = 0.5;
+      }],
+      ['schema_version wrong type', (value) => (value.schema_version = 1)],
+      ['policy_version wrong type', (value) => (value.policy_version = false)],
+    ];
+    for (const [name, mutate] of invalidVariants) {
+      const invalid = structuredClone(record);
+      mutate(invalid);
+      const invalidRaw = JSON.stringify([invalid]);
+      sessionStorage.setItem(historyKey, invalidRaw);
+      const write = vi.spyOn(sessionStorage, 'setItem');
+      expect(() => loadHistory(), name).toThrow('本地历史记录格式无效');
+      expect(() => analyzeLocal({ ...base, input_version: 2, persist: true }), name).toThrow(
+        '本地历史记录格式无效',
+      );
+      expect(() => decideLocal(current, 'rejected'), name).toThrow('本地历史记录格式无效');
+      expect(write, name).not.toHaveBeenCalled();
+      expect(sessionStorage.getItem(historyKey), name).toBe(invalidRaw);
+      write.mockRestore();
+    }
+    expect(reportFor(current.session_id)).toEqual(current);
+  });
+
+  it('still accepts the current Report format', () => {
+    const current = analyzeLocal({ ...base, persist: true });
+    expect(loadHistory()).toEqual([current]);
+  });
+
+  it('rejects unsafe squat sequences and energy relationships', () => {
+    const firstRep = {
+      number: 1,
+      start_seconds: 1,
+      bottom_seconds: 2,
+      end_seconds: 3,
+      descent_seconds: 1,
+      ascent_seconds: 1,
+      min_angle_degrees: 90,
+      rom: 'within_rule' as const,
+    };
+    const secondRep = {
+      ...firstRep,
+      number: 2,
+      start_seconds: 3,
+      bottom_seconds: 4,
+      end_seconds: 5,
+    };
+    const current = analyzeLocal({
+      ...base,
+      reps: 2,
+      rep_details: [firstRep, secondRep],
+      persist: true,
+    });
+    const raw = sessionStorage.getItem(historyKey);
+    if (!raw) throw new Error('expected a persisted report');
+    const record = JSON.parse(raw)[0] as Record<string, unknown>;
+    const invalidVariants: Array<[string, (value: Record<string, unknown>) => void]> = [
+      [
+        'squat timestamp reverse',
+        (value) => {
+          (value.rep_details as Array<Record<string, unknown>>)[0].start_seconds = 2.5;
+        },
+      ],
+      [
+        'squat descent mismatch',
+        (value) => {
+          (value.rep_details as Array<Record<string, unknown>>)[0].descent_seconds = 0.5;
+        },
+      ],
+      [
+        'squat ascent mismatch',
+        (value) => {
+          (value.rep_details as Array<Record<string, unknown>>)[0].ascent_seconds = 0.5;
+        },
+      ],
+      [
+        'squat number reverse',
+        (value) => {
+          (value.rep_details as Array<Record<string, unknown>>)[1].number = 1;
+        },
+      ],
+      [
+        'squat time overlap',
+        (value) => {
+          const reps = value.rep_details as Array<Record<string, unknown>>;
+          reps[1].start_seconds = 2.5;
+          reps[1].bottom_seconds = 3.5;
+          reps[1].end_seconds = 4.5;
+        },
+      ],
+      [
+        'more than 100 squat records',
+        (value) => {
+          value.rep_details = Array.from({ length: 101 }, (_, index) => ({
+            ...firstRep,
+            number: index + 1,
+            start_seconds: index * 2,
+            bottom_seconds: index * 2 + 1,
+            end_seconds: index * 2 + 2,
+          }));
+        },
+      ],
+      [
+        'negative low energy',
+        (value) => {
+          (value.energy as Record<string, unknown>).low_kcal = -1;
+        },
+      ],
+      [
+        'negative work seconds',
+        (value) => {
+          (value.energy as Record<string, unknown>).work_seconds = -1;
+        },
+      ],
+      [
+        'negative daily energy',
+        (value) => {
+          const energy = value.energy as Record<string, unknown>;
+          (energy.daily as Record<string, unknown>).bmr_kcal = -1;
+        },
+      ],
+      [
+        'energy bounds reversed',
+        (value) => {
+          const energy = value.energy as Record<string, unknown>;
+          energy.low_kcal = 10;
+          energy.high_kcal = 5;
+        },
+      ],
+      [
+        'net energy bounds reversed',
+        (value) => {
+          const energy = value.energy as Record<string, unknown>;
+          energy.net_low_kcal = 10;
+          energy.net_high_kcal = 5;
+        },
+      ],
+      [
+        'rep number exceeds traced total',
+        (value) => {
+          (value.rep_details as Array<Record<string, unknown>>)[1].number = 3;
+        },
+      ],
+      [
+        'rep end exceeds active seconds',
+        (value) => {
+          value.active_seconds = 4;
+        },
+      ],
+      [
+        'rep end exceeds energy duration',
+        (value) => {
+          const energy = value.energy as Record<string, unknown>;
+          energy.work_seconds = 1;
+          energy.rest_seconds = 0;
+          energy.unknown_seconds = 0;
+        },
+      ],
+      [
+        'active and energy durations disagree',
+        (value) => {
+          value.active_seconds = 60;
+          const energy = value.energy as Record<string, unknown>;
+          energy.work_seconds = 1;
+          energy.rest_seconds = 0;
+          energy.unknown_seconds = 0;
+        },
+      ],
+      [
+        'reps field invalid',
+        (value) => {
+          value.reps = '2';
+        },
+      ],
+      [
+        'top reps disagree with final trace reps',
+        (value) => {
+          value.reps = 3;
+        },
+      ],
+      [
+        'trace reps invalid',
+        (value) => {
+          const trace = value.trace as Array<Record<string, unknown>>;
+          const training = trace.find((entry) => entry.role === 'training_analyst');
+          if (!training) throw new Error('expected training trace entry');
+          (training.evidence as Record<string, unknown>).reps = '2';
+        },
+      ],
+    ];
+    for (const [name, mutate] of invalidVariants) {
+      const invalid = structuredClone(record);
+      mutate(invalid);
+      const invalidRaw = JSON.stringify([invalid]);
+      sessionStorage.setItem(historyKey, invalidRaw);
+      const write = vi.spyOn(sessionStorage, 'setItem');
+      expect(() => loadHistory(), name).toThrow('本地历史记录格式无效');
+      expect(() => analyzeLocal({ ...base, input_version: 2, persist: true }), name).toThrow(
+        '本地历史记录格式无效',
+      );
+      expect(() => decideLocal(current, 'rejected'), name).toThrow('本地历史记录格式无效');
+      expect(write, name).not.toHaveBeenCalled();
+      expect(sessionStorage.getItem(historyKey), name).toBe(invalidRaw);
+      write.mockRestore();
+    }
+    expect(reportFor(current.session_id)).toEqual(current);
+  });
+
+  it('accepts matching top-level and final trace totals', () => {
+    const current = analyzeLocal({ ...base, persist: true });
+    const raw = sessionStorage.getItem(historyKey);
+    if (!raw) throw new Error('expected a persisted report');
+    const record = JSON.parse(raw)[0] as Record<string, unknown>;
+    record.reps = base.reps;
+    sessionStorage.setItem(historyKey, JSON.stringify([record]));
+    expect(loadHistory()).toHaveLength(1);
+    expect(reportFor(current.session_id)).toEqual(current);
+  });
+
+  it('accepts valid proposal statuses and latched accepted/rejected views', () => {
+    const current = analyzeLocal({ ...base, persist: true });
+    const raw = sessionStorage.getItem(historyKey);
+    if (!raw) throw new Error('expected a persisted report');
+    const baseRecord = JSON.parse(raw)[0] as Record<string, unknown>;
+    const statuses = [
+      { status: 'pending', blocked: false },
+      { status: 'blocked', blocked: true },
+      { status: 'accepted', blocked: false },
+      { status: 'rejected', blocked: false },
+      { status: 'accepted', blocked: true },
+      { status: 'rejected', blocked: true },
+    ] as const;
+    for (const { status, blocked } of statuses) {
+      const record = structuredClone(baseRecord);
+      const proposal = record.proposal as Record<string, unknown>;
+      proposal.status = status;
+      proposal.blocked = blocked;
+      proposal.decided_at =
+        status === 'accepted' || status === 'rejected' ? '2026-01-01T00:00:00+00:00' : null;
+      const latchedView = blocked && (status === 'accepted' || status === 'rejected');
+      if (latchedView) {
+        record.safety_latched = true;
+        record.safety_version = 1;
+      } else {
+        delete record.safety_latched;
+        delete record.safety_version;
+      }
+      sessionStorage.setItem(historyKey, JSON.stringify([record]));
+      expect(loadHistory(), `${status}/${blocked}`).toHaveLength(1);
+    }
+    expect(reportFor(current.session_id)).toEqual(current);
+  });
+
+  it('accepts legacy records without optional schema/policy metadata', () => {
+    const legacy = {
+      session_id: 'legacy-history',
+      input_version: 1,
+      source: 'simulation',
+      coverage: 0.5,
+      completion: 0.5,
+      saved: true,
+      rep_details: [],
+      energy: { low_kcal: 1, high_kcal: 2, note: 'legacy' },
+      proposal: {
+        target_reps: 12,
+        rest_seconds: 60,
+        reason: 'legacy reason',
+        blocked: false,
+        status: 'pending',
+      },
+      trace: [
+        {
+          role: 'reporter',
+          runtime: 'browser',
+          decision: 'summary',
+          evidence: {},
+          timestamp: '2026-01-01T00:00:00+00:00',
+        },
+      ],
+    };
+    sessionStorage.setItem(historyKey, JSON.stringify([legacy]));
+    expect(loadHistory()).toHaveLength(1);
+    expect(loadHistory()[0].session_id).toBe('legacy-history');
+
+    // The previous loader allowed empty trace arrays. Keep that compatibility
+    // only for unversioned legacy records with no untraceable rep details.
+    const legacyEmptyTrace = { ...legacy, session_id: 'legacy-empty-trace', trace: [] };
+    sessionStorage.setItem(historyKey, JSON.stringify([legacyEmptyTrace]));
+    expect(loadHistory()[0].session_id).toBe('legacy-empty-trace');
+
+    const untraceableReps = {
+      ...legacyEmptyTrace,
+      session_id: 'legacy-untraceable-reps',
+      rep_details: [
+        {
+          number: 1,
+          start_seconds: 1,
+          bottom_seconds: 2,
+          end_seconds: 3,
+          descent_seconds: 1,
+          ascent_seconds: 1,
+          min_angle_degrees: 90,
+          rom: 'within_rule',
+        },
+      ],
+    };
+    sessionStorage.setItem(historyKey, JSON.stringify([untraceableReps]));
+    expect(() => loadHistory()).toThrow('本地历史记录格式无效');
+  });
+
   it('distinguishes a missing key and an explicitly empty array from failed reads', () => {
     expect(sessionStorage.getItem(historyKey)).toBeNull();
     expect(loadHistory()).toEqual([]);
