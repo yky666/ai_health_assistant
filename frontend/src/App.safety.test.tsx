@@ -533,8 +533,17 @@ describe('discomfort safety latch', () => {
     expect(discomfortInput().checked).toBe(true);
     expect(container.textContent).toContain('本次训练已因不适停止');
     expect(container.textContent).toContain('不会用空数据生成报告');
+    expect(container.textContent).toContain('00:00');
+    expect(container.textContent).toContain('0/ 12');
+    expect((container.querySelector('video') as HTMLVideoElement | null)?.srcObject ?? null).toBeNull();
     expect(findButton('本次训练已停止').disabled).toBe(true);
     expect(findButton('本组数据未恢复').disabled).toBe(true);
+    expect(latestReport()).toBeNull();
+
+    await forceClick(findButtonByAria('重置本组'));
+    expect(container.textContent).toContain('不能通过重置恢复本组');
+    await forceClick(findButton('真实摄像头'));
+    expect(container.textContent).toContain('不能通过切换输入源恢复本组');
 
     await forceClick(findButton('本组数据未恢复'));
     expect(latestReport()).toBeNull();
@@ -544,6 +553,56 @@ describe('discomfort safety latch', () => {
     expect(discomfortInput().checked).toBe(false);
     expect(findButton('本次训练已停止').disabled).toBe(true);
     expect(container.textContent).toContain('本次训练已因不适停止');
+  });
+
+  it('offers read-only saved history after recovering a latched group', async () => {
+    await renderApp();
+    await clickButton(findButton('开始 / 继续'));
+    await toggleCheckbox(discomfortInput());
+
+    const savedRecord = {
+      session_id: 'saved-before-reload',
+      input_version: 1,
+      source: 'simulation',
+      coverage: 0.5,
+      completion: 0.5,
+      saved: true,
+      rep_details: [],
+      energy: { low_kcal: 1, high_kcal: 2, note: '历史摘要' },
+      proposal: {
+        target_reps: 12,
+        rest_seconds: 60,
+        reason: '历史建议',
+        blocked: false,
+        status: 'pending',
+      },
+      trace: [
+        {
+          role: 'reporter',
+          runtime: 'browser',
+          decision: '历史摘要',
+          evidence: {},
+          timestamp: '2026-01-01T00:00:00+00:00',
+        },
+      ],
+    };
+    sessionStorage.setItem('localfit-browser-history', JSON.stringify([savedRecord]));
+
+    await act(async () => {
+      root!.unmount();
+    });
+    root = null;
+    container.remove();
+    await renderApp();
+
+    const viewHistory = findButton('查看已保存历史');
+    expect(viewHistory).toBeTruthy();
+    await clickButton(viewHistory);
+    expect(container.textContent).toContain('saved-be');
+    expect(findButton('本次训练已停止').disabled).toBe(true);
+    expect(findButton('本组数据未恢复').disabled).toBe(true);
+    expect(latestReport()).toBeNull();
+    expect(loadHistory()).toHaveLength(1);
   });
 
   it('fails closed when browser safety storage is corrupt', async () => {

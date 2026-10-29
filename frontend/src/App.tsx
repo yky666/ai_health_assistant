@@ -2365,6 +2365,13 @@ export default function App() {
     }
     return true;
   }
+  async function loadSavedHistory() {
+    try {
+      setHistory(await request<Report[]>('/history'));
+    } catch (e) {
+      setError(String(e));
+    }
+  }
   function exportReport() {
     if (!report) return;
     const url = URL.createObjectURL(
@@ -2525,8 +2532,21 @@ export default function App() {
               : report?.proposal.status === 'accepted' || report?.proposal.status === 'rejected'
                 ? '此前已提交的计划决定仍保留在复盘记录中，但不会继续训练。'
                 : browserLatchRecovered && !report
-                  ? '刷新后安全阻断已恢复，但本组计数、计时和实时画面不会恢复。不会用空数据生成报告；请查看已保存历史。'
+                  ? '刷新后安全阻断已恢复，但本组计数、计时和实时画面不会恢复。不会用空数据生成报告；本组不能继续，也不会自动开始新组。可只读查看已保存历史。'
                   : SAFETY_STOP_NOTICE}
+            {browserLatchRecovered && !report && (
+              <div className="safety-sync">
+                <button
+                  className="secondary"
+                  onClick={() => {
+                    setTab('report');
+                    void loadSavedHistory();
+                  }}
+                >
+                  查看已保存历史
+                </button>
+              </div>
+            )}
             {runtimeMode === 'backend' && (
               <div className="safety-sync">
                 {safetySync === 'syncing' && <p role="status">正在向服务端同步本次不适事件…</p>}
@@ -3493,12 +3513,8 @@ export default function App() {
               <div className="inline-actions">
                 <button
                   className="secondary"
-                  onClick={async () => {
-                    try {
-                      setHistory(await request<Report[]>('/history'));
-                    } catch (e) {
-                      setError(String(e));
-                    }
+                  onClick={() => {
+                    void loadSavedHistory();
                   }}
                 >
                   读取已保存记录
